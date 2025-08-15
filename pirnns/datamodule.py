@@ -5,7 +5,6 @@ import math
 from torch.utils.data import TensorDataset, random_split
 
 
-
 class PathIntegrationDataModule(L.LightningDataModule):
     def __init__(
         self,

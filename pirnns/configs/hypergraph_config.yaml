@@ -1,0 +1,36 @@
+# Project configuration
+project_name: "path-integration-rnn"
+model_type: "hypergraph"
+device: "cuda"
+
+# Data configuration  
+num_trajectories: 2000
+batch_size: 128
+num_workers: 7
+train_val_split: 0.8
+start_time: 0
+end_time: 100
+num_time_steps: 1000
+arena_L: 5
+mu_speed: 0.2
+sigma_speed: 0.5
+tau_vel: 1
+
+# Model configuration
+input_size: 2
+output_size: 2
+activation: "Tanh"
+
+# Hypergraph-specific configuration
+num_nodes: 400
+num_hyperedges: 50
+hypergraph_structure: "random"
+max_hyperedge_size: 3
+alpha_node: 0.5
+alpha_hyperedge: 0.2
+
+
+
+# Training configuration
+learning_rate: 0.01
+max_epochs: 500

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import lightning as L
 
 
 class RNNStep(nn.Module):
@@ -29,7 +30,7 @@ class RNNStep(nn.Module):
         return h
 
 
-class PathIntRNN(nn.Module):
+class RNN(nn.Module):
     def __init__(
         self,
         input_size: int,
@@ -46,10 +47,10 @@ class PathIntRNN(nn.Module):
         :param alpha: RNN update rate.
         :param activation: The activation function.
         """
-        super(PathIntRNN, self).__init__()
-        self.input_size: int = input_size
-        self.hidden_size: int = hidden_size
-        self.output_size: int = output_size
+        super(RNN, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
 
         self.rnn_step = RNNStep(input_size, hidden_size, alpha, activation)
         self.W_out = nn.Linear(hidden_size, output_size)
@@ -91,3 +92,75 @@ class PathIntRNN(nn.Module):
         # 4. Initial hidden state encoder (W_h_init) - Xavier initialization
         nn.init.xavier_uniform_(self.W_h_init.weight)
         nn.init.zeros_(self.W_h_init.bias)
+
+
+class RNNLightning(L.LightningModule):
+    def __init__(
+        self,
+        model: RNN,
+        learning_rate: float = 0.01,
+        weight_decay: float = 0.0,
+        step_size: int = 100,
+        gamma: float = 0.5,
+    ) -> None:
+        super().__init__()
+        self.model = model
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.step_size = step_size
+        self.gamma = gamma
+
+    def training_step(self, batch) -> torch.Tensor:
+        inputs, targets = batch
+        # inputs has shape (batch_size, time_steps, input_size)
+        # targets has shape (batch_size, time_steps, output_size)
+        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+
+        loss = nn.functional.mse_loss(outputs, targets)
+
+        self.log(
+            "train_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+        return loss
+
+    def validation_step(self, batch) -> torch.Tensor:
+        inputs, targets = batch
+        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+
+        loss = nn.functional.mse_loss(outputs, targets)
+
+        self.log(
+            "val_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
+
+        return loss
+
+    def configure_optimizers(self):
+        """Configure the optimizer and scheduler for the Hypergraph RNN model."""
+        optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
+        )
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=self.step_size, gamma=self.gamma
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",
+                "monitor": "val_loss",
+            },
+        }
