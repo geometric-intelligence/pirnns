@@ -7,7 +7,7 @@ import yaml
 import torch
 import os
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
-from loss_logger_callback import LossLoggerCallback
+from callbacks import LossLoggerCallback, PositionDecodingCallback
 
 from datamodule import PathIntegrationDataModule
 
@@ -157,11 +157,17 @@ def main(config: dict):
 
     loss_logger = LossLoggerCallback(save_dir=run_dir)
 
+    position_decoding_callback = PositionDecodingCallback(
+        place_cell_centers=datamodule.place_cell_centers,
+        decode_k=config["decode_k"],
+        log_every_n_epochs=config["log_every_n_epochs"],
+    )
+
     trainer = Trainer(
         logger=wandb_logger,
         max_epochs=config["max_epochs"],
         default_root_dir=log_dir,
-        callbacks=[checkpoint_callback, loss_logger],
+        callbacks=[checkpoint_callback, loss_logger, position_decoding_callback],
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
     )
 

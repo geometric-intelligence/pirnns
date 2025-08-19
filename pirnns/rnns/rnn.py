@@ -43,7 +43,7 @@ class RNN(nn.Module):
         Initialize the Path Integrating RNN.
         :param input_size: The size of the velocity input (= dimension of space).
         :param hidden_size: The size of the hidden state (number of neurons/"grid cells").
-        :param output_size: The size of the output vector (dimension of space).
+        :param output_size: The size of the output vector (number of place cells).
         :param alpha: RNN update rate.
         :param activation: The activation function.
         """
@@ -56,18 +56,18 @@ class RNN(nn.Module):
         self.W_out = nn.Linear(hidden_size, output_size)
 
         # Layer to initialize hidden state
-        self.W_h_init = nn.Linear(2, hidden_size)
+        self.W_h_init = nn.Linear(output_size, hidden_size)
 
         self.initialize_weights()
 
     def forward(
-        self, inputs: torch.Tensor, pos_0: torch.Tensor
+        self, inputs: torch.Tensor, place_cells_0: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # inputs has shape (batch_size, time_steps, input_size)
-        # pos_0 has shape (batch_size, 2)
+        # place_cells_0 has shape (batch_size, output_size)
         hidden_states = []
         outputs = []
-        hidden = torch.tanh(self.W_h_init(pos_0))
+        hidden = torch.tanh(self.W_h_init(place_cells_0))
         for t in range(inputs.shape[1]):
             input_t = inputs[:, t, :]
             hidden = self.rnn_step(input_t, hidden)
@@ -98,10 +98,12 @@ class RNNLightning(L.LightningModule):
     def __init__(
         self,
         model: RNN,
+        place_cell_centers: torch.Tensor,
         learning_rate: float = 0.01,
         weight_decay: float = 0.0,
         step_size: int = 100,
         gamma: float = 0.5,
+        decode_k: int = 3,
     ) -> None:
         super().__init__()
         self.model = model
@@ -109,40 +111,51 @@ class RNNLightning(L.LightningModule):
         self.weight_decay = weight_decay
         self.step_size = step_size
         self.gamma = gamma
+        self.decode_k = decode_k
+        
+        # Register place cell centers as buffer (moves with device automatically)
+        self.register_buffer('place_cell_centers', place_cell_centers)
+
+    def decode_position_from_place_cells(self, activation: torch.Tensor) -> torch.Tensor:
+        """Decode position from place cell activations using top-k method."""
+        _, idxs = torch.topk(activation, k=self.decode_k, dim=-1)  # [B, T, k]
+        pred_pos = self.place_cell_centers[idxs].mean(-2)  # [B, T, 2]
+        return pred_pos
 
     def training_step(self, batch) -> torch.Tensor:
-        inputs, targets = batch
-        # inputs has shape (batch_size, time_steps, input_size)
-        # targets has shape (batch_size, time_steps, output_size)
-        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+        inputs, target_positions, target_place_cells = batch
+        hidden_states, outputs = self.model(inputs=inputs, place_cells_0=target_place_cells[:, 0, :])
 
-        loss = nn.functional.mse_loss(outputs, targets)
-
-        self.log(
-            "train_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
+        # Cross-entropy loss
+        loss = nn.functional.cross_entropy(
+            outputs.reshape(-1, self.model.output_size),
+            target_place_cells.reshape(-1, self.model.output_size)
         )
+
+        # Weight regularization on recurrent weights
+        loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
+
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        inputs, targets = batch
-        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+        inputs, target_positions, target_place_cells = batch
+        # inputs has shape (batch_size, time_steps, input_size)
+        # target_positions has shape (batch_size, time_steps, 2)
+        # target_place_cells has shape (batch_size, time_steps, output_size)
+        hidden_states, outputs = self.model(inputs=inputs, place_cells_0=target_place_cells[:, 0, :])
 
-        loss = nn.functional.mse_loss(outputs, targets)
-
-        self.log(
-            "val_loss",
-            loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
+        # Cross-entropy loss
+        loss = nn.functional.cross_entropy(
+            outputs.reshape(-1, self.model.output_size),
+            target_place_cells.reshape(-1, self.model.output_size)
         )
+
+        # Weight regularization on recurrent weights
+        loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
+
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return loss
 
