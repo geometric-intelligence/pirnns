@@ -29,7 +29,7 @@ DoG: true
 
 # RNN configuration
 input_size: 2
-hidden_size: 400
+hidden_size: 4096
 alpha: 0.7
 activation: "Tanh"  # PyTorch activation function name
 
