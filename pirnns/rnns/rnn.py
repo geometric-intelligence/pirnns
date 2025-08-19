@@ -36,7 +36,7 @@ class RNN(nn.Module):
         input_size: int,
         hidden_size: int,
         output_size: int,
-        alpha: float = 0.1,
+        alpha: float,
         activation: type[nn.Module] = nn.Tanh,
     ) -> None:
         """
@@ -98,29 +98,25 @@ class RNNLightning(L.LightningModule):
     def __init__(
         self,
         model: RNN,
-        place_cell_centers: torch.Tensor,
-        learning_rate: float = 0.01,
-        weight_decay: float = 0.0,
-        step_size: int = 100,
-        gamma: float = 0.5,
-        decode_k: int = 3,
+        learning_rate: float,
+        weight_decay: float,
+        step_size: int,
+        gamma: float,
     ) -> None:
+        """
+        Initialize the RNN Lightning module.
+        :param model: The RNN model.
+        :param learning_rate: The learning rate.
+        :param weight_decay: The weight decay for the recurrent weights.
+        :param step_size: The step size for the learning rate scheduler.
+        :param gamma: The gamma for the learning rate scheduler.
+        """
         super().__init__()
         self.model = model
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.step_size = step_size
         self.gamma = gamma
-        self.decode_k = decode_k
-        
-        # Register place cell centers as buffer (moves with device automatically)
-        self.register_buffer('place_cell_centers', place_cell_centers)
-
-    def decode_position_from_place_cells(self, activation: torch.Tensor) -> torch.Tensor:
-        """Decode position from place cell activations using top-k method."""
-        _, idxs = torch.topk(activation, k=self.decode_k, dim=-1)  # [B, T, k]
-        pred_pos = self.place_cell_centers[idxs].mean(-2)  # [B, T, 2]
-        return pred_pos
 
     def training_step(self, batch) -> torch.Tensor:
         inputs, target_positions, target_place_cells = batch
@@ -164,7 +160,7 @@ class RNNLightning(L.LightningModule):
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.learning_rate,
-            weight_decay=self.weight_decay,
+            weight_decay=0.0, # we do manual weight decay on recurrent weights in the loss
         )
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=self.step_size, gamma=self.gamma

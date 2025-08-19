@@ -1,5 +1,5 @@
 import torch.nn as nn
-from lightning import Trainer
+from lightning import Trainer, seed_everything
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 import argparse
@@ -30,7 +30,7 @@ def create_vanilla_rnn_model(config: dict):
     model = RNN(
         input_size=config["input_size"],
         hidden_size=config["hidden_size"],
-        output_size=config["output_size"],
+        output_size=config["num_place_cells"],
         alpha=config["alpha"],
         activation=getattr(nn, config.get("activation", "Tanh")),
     )
@@ -38,9 +38,9 @@ def create_vanilla_rnn_model(config: dict):
     lightning_module = RNNLightning(
         model=model,
         learning_rate=config["learning_rate"],
-        weight_decay=config.get("weight_decay", 0.0),
-        step_size=config.get("step_size", 100),
-        gamma=config.get("gamma", 0.5),
+        weight_decay=config["weight_decay"],
+        step_size=config["step_size"],
+        gamma=config["gamma"],
     )
 
     return model, lightning_module
@@ -70,7 +70,7 @@ def create_hypergraph_rnn_model(config: dict):
 
     model = HypergraphRNN(
         input_size=config["input_size"],
-        output_size=config["output_size"],
+        output_size=config["num_place_cells"],
         hypergraph=hypergraph,
         alpha_node=config["alpha_node"],
         alpha_hyperedge=config["alpha_hyperedge"],
@@ -89,6 +89,10 @@ def create_hypergraph_rnn_model(config: dict):
 
 
 def main(config: dict):
+    # Set global seed - this handles all randomness sources
+    seed_everything(config["seed"], workers=True)
+    print(f"Global seed set to: {config['seed']}")
+
     model_type = config.get("model_type", "vanilla").lower()
 
     # Generate unique run identifier
@@ -98,25 +102,29 @@ def main(config: dict):
 
     wandb_logger = WandbLogger(
         project=config["project_name"],
-        name=f"{config['name']}_{model_type}_{run_id}",
+        name=f"{config['project_name']}_{model_type}_{run_id}",
         dir=log_dir,
         save_dir=log_dir,
     )
     print("Wandb initialized. Find logs at: ", log_dir)
-    print(f"Wandb run name: {config['name']}_{model_type}_{run_id}")
+    print(f"Wandb run name: {config['project_name']}_{model_type}_{run_id}")
 
     datamodule = PathIntegrationDataModule(
         num_trajectories=config["num_trajectories"],
         batch_size=config["batch_size"],
         num_workers=config["num_workers"],
         train_val_split=config["train_val_split"],
-        start_time=config["start_time"],
-        end_time=config["end_time"],
+        trajectory_duration=config["trajectory_duration"],
         num_time_steps=config["num_time_steps"],
-        arena_L=config["arena_L"],
+        arena_size=config["arena_size"],
         mu_speed=config["mu_speed"],
         sigma_speed=config["sigma_speed"],
         tau_vel=config["tau_vel"],
+        num_place_cells=config["num_place_cells"],
+        place_cell_rf=config["place_cell_rf"],
+        surround_scale=config["surround_scale"],
+        DoG=config["DoG"],
+        trajectory_type=config["trajectory_type"],
     )
 
     datamodule.prepare_data()

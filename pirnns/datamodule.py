@@ -13,8 +13,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         batch_size: int,
         num_workers: int,
         train_val_split: float,
-        start_time: float,
-        end_time: float,
+        trajectory_duration: float,
         num_time_steps: int,
         arena_size: float,
         mu_speed: float,
@@ -25,33 +24,33 @@ class PathIntegrationDataModule(L.LightningDataModule):
         place_cell_rf: float,
         surround_scale: float,
         DoG: bool,
-        periodic: bool,
-        place_cell_seed: int,
+        # Trajectory generation
+        trajectory_type: str = "ornstein_uhlenbeck",
     ) -> None:
         super().__init__()
         self.num_trajectories = num_trajectories
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_val_split = train_val_split
-        self.start_time = start_time
-        self.end_time = end_time
+        self.trajectory_duration = trajectory_duration
         self.num_time_steps = num_time_steps
-        self.dt = (end_time - start_time) / num_time_steps
+        self.dt = trajectory_duration / num_time_steps
 
         self.arena_size = arena_size
         self.mu_speed = mu_speed
         self.sigma_speed = sigma_speed
         self.tau_vel = tau_vel
+        
+        # Trajectory generation type
+        self.trajectory_type = trajectory_type
 
         # Place cell parameters
         self.num_place_cells = num_place_cells
         self.place_cell_rf = place_cell_rf
         self.surround_scale = surround_scale
         self.DoG = DoG
-        self.periodic = periodic
         
         # Initialize place cell centers
-        np.random.seed(place_cell_seed)
         centers_x = np.random.uniform(-arena_size/2, arena_size/2, (num_place_cells,))
         centers_y = np.random.uniform(-arena_size/2, arena_size/2, (num_place_cells,))
         self.place_cell_centers = torch.tensor(np.vstack([centers_x, centers_y]).T, dtype=torch.float32)
@@ -62,11 +61,8 @@ class PathIntegrationDataModule(L.LightningDataModule):
         """
         Compute place cell activations for given positions.
         
-        Args:
-            pos: Positions of shape [batch_size, sequence_length, 2]
-            
-        Returns:
-            activations: Place cell activations [batch_size, sequence_length, num_place_cells]
+        :param pos: Positions of shape [batch_size, sequence_length, 2]
+        :return: Place cell activations [batch_size, sequence_length, num_place_cells]
         """
         # Move centers to same device as pos
         centers = self.place_cell_centers.to(pos.device)
@@ -74,15 +70,10 @@ class PathIntegrationDataModule(L.LightningDataModule):
         # Compute distances: pos is [B, T, 2], centers is [Np, 2]
         d = torch.abs(pos[:, :, None, :] - centers[None, None, ...])
         
-        if self.periodic:
-            dx = d[:, :, :, 0]
-            dy = d[:, :, :, 1]
-            dx = torch.minimum(dx, self.arena_size - dx)
-            dy = torch.minimum(dy, self.arena_size - dy)
-            d = torch.stack([dx, dy], dim=-1)
-        
+        # Compute squared distance
         norm2 = (d**2).sum(-1)  # [B, T, Np]
         
+        # Compute place cell activations
         # Compute place cell activations with softmax normalization
         outputs = self.softmax(-norm2 / (2 * self.place_cell_rf**2))
         
@@ -98,34 +89,13 @@ class PathIntegrationDataModule(L.LightningDataModule):
         
         return outputs
 
-    def decode_position_from_place_cells(self, activation: torch.Tensor, k: int = 3) -> torch.Tensor:
-        """
-        Decode position from place cell activations using top-k method.
-        
-        Args:
-            activation: Place cell activations [batch_size, sequence_length, num_place_cells]
-            k: Number of top cells to use for decoding
-            
-        Returns:
-            positions: Decoded positions [batch_size, sequence_length, 2]
-        """
-        centers = self.place_cell_centers.to(activation.device)
-        _, idxs = torch.topk(activation, k=k, dim=-1)  # [B, T, k]
-        pred_pos = centers[idxs].mean(-2)  # [B, T, 2]
-        return pred_pos
-
-    def simulate_trajectories(
+    def _simulate_ornstein_uhlenbeck_trajectories(
         self,
         device: str = "cpu",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Simulates a batch of trajectories following the Ornstein-Uhlenbeck process.
-        (Brownian motion with a drift term).
-
-        Parameters
-        ----------
-        device : str
-            The device to use for the simulation.
+        Simulates trajectories using Ornstein-Uhlenbeck process.
+        
         Returns
         -------
         inputs : (batch, T, 2), [heading, speed] at each time step
@@ -192,6 +162,32 @@ class PathIntegrationDataModule(L.LightningDataModule):
         place_cell_activations = self.get_place_cell_activations(pos_all)
         
         return inputs, pos_all, place_cell_activations
+
+    def simulate_trajectories(
+        self,
+        device: str = "cpu",
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Simulates trajectories based on the specified trajectory type.
+
+        Parameters
+        ----------
+        device : str
+            The device to use for the simulation.
+            
+        Returns
+        -------
+        inputs : (batch, T, 2), [heading, speed] at each time step
+        positions : (batch, T, 2), ground-truth (x,y) positions
+        place_cell_activations : (batch, T, num_place_cells), ground-truth place cell activations
+        """
+        if self.trajectory_type == "ornstein_uhlenbeck":
+            return self._simulate_ornstein_uhlenbeck_trajectories(device)
+        else:
+            raise NotImplementedError(
+                f"Trajectory type '{self.trajectory_type}' is not implemented. "
+                f"Currently supported: ['ornstein_uhlenbeck']"
+            )
 
     def setup(self, stage=None) -> None:
         inputs, positions, place_cell_activations = self.simulate_trajectories(device="cpu")
