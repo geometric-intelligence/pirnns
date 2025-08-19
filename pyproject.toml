@@ -1,0 +1,48 @@
+[project]
+name = "pirnns"
+version = "0.1.0"
+description = "Task-Trained RNNs for Path Integration"
+authors = [
+    {name = "Francisco Acosta",email = "facosta@ucsb.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "matplotlib (>=3.10.1,<4.0.0)",
+    "torch (>=2.7.0,<3.0.0)",
+    "numpy (>=2.2.5,<3.0.0)",
+    "plotly (>=6.0.1,<7.0.0)",
+    "lightning (>=2.5.1.post0,<3.0.0)",
+    "wandb (>=0.19.10,<0.20.0)",
+    "black (>=25.1.0,<26.0.0)",
+    "h5py (>=3.14.0,<4.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.5"
+ruff = "^0.4.4"
+mypy = "^1.10.0"
+types-PyYAML = "^6.0.12.20250402"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]  # style, errors, warnings, bugbear
+ignore = ["E501"]  # ignore line-too-long if needed
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+
