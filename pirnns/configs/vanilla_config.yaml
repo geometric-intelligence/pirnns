@@ -5,7 +5,7 @@ device: "cuda"
 seed: 0 # Global seed
 
 # Data configuration  
-num_trajectories: 2000
+num_trajectories: 100000
 trajectory_type: 'ornstein_uhlenbeck'
 batch_size: 128
 num_workers: 7
@@ -13,8 +13,8 @@ train_val_split: 0.8
 
 
 # Trajectory configuration
-trajectory_duration: 20 # 20 seconds
-num_time_steps: 200 # dt = 0.1s (reasonable neural dynamics timescale)
+trajectory_duration: 5 # 2 seconds
+num_time_steps: 50 # dt = 0.1s (reasonable neural dynamics timescale)
 mu_speed: 0.2
 sigma_speed: 0.5
 tau_vel: 1
@@ -30,18 +30,18 @@ DoG: true
 # RNN configuration
 input_size: 2
 hidden_size: 4096
-alpha: 0.7
+alpha: 0.3
 activation: "Tanh"  # PyTorch activation function name
 
 # Training configuration
-learning_rate: 0.01
-weight_decay: 0.0
+learning_rate: 1e-4
+weight_decay: 1e-4
 step_size: 100
 gamma: 0.5
-max_epochs: 500
+max_epochs: 100
 
 #Callback configs
 decode_k: 3
-log_every_n_epochs: 10
+log_every_n_epochs: 5
 
 
