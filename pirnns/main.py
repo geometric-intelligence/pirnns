@@ -80,9 +80,9 @@ def create_hypergraph_rnn_model(config: dict):
     lightning_module = HypergraphRNNLightning(
         model=model,
         learning_rate=config["learning_rate"],
-        step_size=config.get("step_size", 100),
-        gamma=config.get("gamma", 0.5),
-        weight_decay=config.get("weight_decay", 0.0),
+        step_size=config["step_size"],
+        gamma=config["gamma"],
+        weight_decay=config["weight_decay"],
     )
 
     return model, lightning_module

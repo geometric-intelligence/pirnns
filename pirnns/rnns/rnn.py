@@ -120,18 +120,27 @@ class RNNLightning(L.LightningModule):
 
     def training_step(self, batch) -> torch.Tensor:
         inputs, target_positions, target_place_cells = batch
-        hidden_states, outputs = self.model(inputs=inputs, place_cells_0=target_place_cells[:, 0, :])
+        hidden_states, outputs = self.model(
+            inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+        )
 
         # Cross-entropy loss
         loss = nn.functional.cross_entropy(
             outputs.reshape(-1, self.model.output_size),
-            target_place_cells.reshape(-1, self.model.output_size)
+            target_place_cells.reshape(-1, self.model.output_size),
         )
 
         # Weight regularization on recurrent weights
         loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
 
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "train_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
 
         return loss
 
@@ -140,18 +149,27 @@ class RNNLightning(L.LightningModule):
         # inputs has shape (batch_size, time_steps, input_size)
         # target_positions has shape (batch_size, time_steps, 2)
         # target_place_cells has shape (batch_size, time_steps, output_size)
-        hidden_states, outputs = self.model(inputs=inputs, place_cells_0=target_place_cells[:, 0, :])
+        hidden_states, outputs = self.model(
+            inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+        )
 
         # Cross-entropy loss
         loss = nn.functional.cross_entropy(
             outputs.reshape(-1, self.model.output_size),
-            target_place_cells.reshape(-1, self.model.output_size)
+            target_place_cells.reshape(-1, self.model.output_size),
         )
 
         # Weight regularization on recurrent weights
         loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
 
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "val_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
 
         return loss
 
@@ -160,7 +178,7 @@ class RNNLightning(L.LightningModule):
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.learning_rate,
-            weight_decay=0.0, # we do manual weight decay on recurrent weights in the loss
+            weight_decay=0.0,  # we do manual weight decay on recurrent weights in the loss
         )
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=self.step_size, gamma=self.gamma

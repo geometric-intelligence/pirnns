@@ -40,7 +40,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         self.mu_speed = mu_speed
         self.sigma_speed = sigma_speed
         self.tau_vel = tau_vel
-        
+
         # Trajectory generation type
         self.trajectory_type = trajectory_type
 
@@ -49,44 +49,52 @@ class PathIntegrationDataModule(L.LightningDataModule):
         self.place_cell_rf = place_cell_rf
         self.surround_scale = surround_scale
         self.DoG = DoG
-        
+
         # Initialize place cell centers
-        centers_x = np.random.uniform(-arena_size/2, arena_size/2, (num_place_cells,))
-        centers_y = np.random.uniform(-arena_size/2, arena_size/2, (num_place_cells,))
-        self.place_cell_centers = torch.tensor(np.vstack([centers_x, centers_y]).T, dtype=torch.float32)
-        
+        centers_x = np.random.uniform(
+            -arena_size / 2, arena_size / 2, (num_place_cells,)
+        )
+        centers_y = np.random.uniform(
+            -arena_size / 2, arena_size / 2, (num_place_cells,)
+        )
+        self.place_cell_centers = torch.tensor(
+            np.vstack([centers_x, centers_y]).T, dtype=torch.float32
+        )
+
         self.softmax = torch.nn.Softmax(dim=-1)
 
     def get_place_cell_activations(self, pos: torch.Tensor) -> torch.Tensor:
         """
         Compute place cell activations for given positions.
-        
+
         :param pos: Positions of shape [batch_size, sequence_length, 2]
         :return: Place cell activations [batch_size, sequence_length, num_place_cells]
         """
         # Move centers to same device as pos
         centers = self.place_cell_centers.to(pos.device)
-        
+
         # Compute distances: pos is [B, T, 2], centers is [Np, 2]
         d = torch.abs(pos[:, :, None, :] - centers[None, None, ...])
-        
+
         # Compute squared distance
         norm2 = (d**2).sum(-1)  # [B, T, Np]
-        
+
         # Compute place cell activations
         # Compute place cell activations with softmax normalization
         outputs = self.softmax(-norm2 / (2 * self.place_cell_rf**2))
-        
+
         if self.DoG:
             # Subtract surround (larger sigma)
-            surround = self.softmax(-norm2 / (2 * self.surround_scale * self.place_cell_rf**2))
+            surround = self.softmax(
+                -norm2 / (2 * self.surround_scale * self.place_cell_rf**2)
+            )
             outputs = outputs - surround
-            
+
             # Shift and scale to [0,1]
             min_output, _ = outputs.min(-1, keepdim=True)
             outputs = outputs + torch.abs(min_output)
             outputs = outputs / outputs.sum(-1, keepdim=True)
-        
+
         return outputs
 
     def _simulate_ornstein_uhlenbeck_trajectories(
@@ -95,7 +103,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Simulates trajectories using Ornstein-Uhlenbeck process.
-        
+
         Returns
         -------
         inputs : (batch, T, 2), [heading, speed] at each time step
@@ -113,7 +121,8 @@ class PathIntegrationDataModule(L.LightningDataModule):
         )
         vel = torch.stack((torch.cos(hd0), torch.sin(hd0)), dim=-1) * spd0.unsqueeze(-1)
 
-        pos_all, vel_all = [pos], [vel]
+        # Use different names for list vs tensor versions
+        pos_list, vel_list = [pos], [vel]
 
         sqrt_2dt_over_tau = math.sqrt(2 * self.dt / self.tau_vel)
         for _ in range(self.num_time_steps - 1):
@@ -148,19 +157,20 @@ class PathIntegrationDataModule(L.LightningDataModule):
                 pos[out_top, 1] = 2 * self.arena_size - pos[out_top, 1]
                 vel[out_top, 1] *= -1
 
-            pos_all.append(pos)
-            vel_all.append(vel)
+            pos_list.append(pos)
+            vel_list.append(vel)
 
-        vel_all = torch.stack(vel_all, 1)  # (batch, T, 2)
-        pos_all = torch.stack(pos_all, 1)  # (batch, T, 2)
+        # Convert lists to tensors
+        vel_all = torch.stack(vel_list, 1)  # (batch, T, 2)
+        pos_all = torch.stack(pos_list, 1)  # (batch, T, 2)
         speeds = torch.linalg.norm(vel_all, dim=-1)
         headings = torch.atan2(vel_all[..., 1], vel_all[..., 0]) % (2 * torch.pi)
 
         inputs = torch.stack((headings, speeds), dim=-1)  # (batch, T, 2)
-        
+
         # Compute place cell activations as targets
         place_cell_activations = self.get_place_cell_activations(pos_all)
-        
+
         return inputs, pos_all, place_cell_activations
 
     def simulate_trajectories(
@@ -174,7 +184,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         ----------
         device : str
             The device to use for the simulation.
-            
+
         Returns
         -------
         inputs : (batch, T, 2), [heading, speed] at each time step
@@ -190,7 +200,9 @@ class PathIntegrationDataModule(L.LightningDataModule):
             )
 
     def setup(self, stage=None) -> None:
-        inputs, positions, place_cell_activations = self.simulate_trajectories(device="cpu")
+        inputs, positions, place_cell_activations = self.simulate_trajectories(
+            device="cpu"
+        )
         full_dataset = TensorDataset(inputs, positions, place_cell_activations)
 
         # split into train and val

@@ -176,7 +176,7 @@ class HypergraphRNN(nn.Module):
         """Initialize the Hypergraph RNN model.
 
         :param input_size: Dimension of the input signal
-        :param output_size: Dimension of the output
+        :param output_size: Dimension of the output (number of place cells)
         :param hypergraph: The hypergraph structure defining connectivity
         :param alpha_node: Node update rate
         :param alpha_hyperedge: Hyperedge update rate
@@ -199,31 +199,34 @@ class HypergraphRNN(nn.Module):
         # Output layer (equivalent to W_out)
         self.W_out = nn.Linear(hypergraph.num_nodes, output_size)
 
-        # Layer to initialize node and hyperedge states (equivalent to W_h_init)
-        self.W_node_init = nn.Linear(2, hypergraph.num_nodes)
-        self.W_hyperedge_init = nn.Linear(2, hypergraph.num_hyperedges)
+        # Layer to initialize node and hyperedge states from place cells
+        # Changed from pos_0 (2D) to place_cells_0 (output_size dimensions)
+        self.W_node_init = nn.Linear(output_size, hypergraph.num_nodes)
+        self.W_hyperedge_init = nn.Linear(output_size, hypergraph.num_hyperedges)
 
         self.initialize_weights()
 
     def forward(
-        self, inputs: torch.Tensor, pos_0: torch.Tensor
+        self, inputs: torch.Tensor, place_cells_0: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass of the Hypergraph RNN.
 
         :param inputs: Input sequence (batch_size, time_steps, input_size)
-        :param pos_0: Initial position (batch_size, 2)
+        :param place_cells_0: Initial place cell activations (batch_size, output_size)
         :return: (hidden_states, outputs)
         """
         # inputs has shape (batch_size, time_steps, input_size)
-        # pos_0 has shape (batch_size, 2)
+        # place_cells_0 has shape (batch_size, output_size)
 
         hidden_states = []  # Will store node states over time
         outputs = []
 
-        # Initialize node and hyperedge states from pos_0
-        node_states = torch.tanh(self.W_node_init(pos_0))  # (batch_size, num_nodes)
+        # Initialize node and hyperedge states from place_cells_0
+        node_states = torch.tanh(
+            self.W_node_init(place_cells_0)
+        )  # (batch_size, num_nodes)
         hyperedge_states = torch.tanh(
-            self.W_hyperedge_init(pos_0)
+            self.W_hyperedge_init(place_cells_0)
         )  # (batch_size, num_hyperedges)
 
         # Loop over time steps (same structure as vanilla RNN)
@@ -245,11 +248,25 @@ class HypergraphRNN(nn.Module):
 
     def initialize_weights(self) -> None:
         """Initialize weights for stable training (similar to vanilla RNN)"""
-        # Output weights
+        # Node recurrent weights - Orthogonal initialization
+        nn.init.orthogonal_(self.hypergraph_step.W_node_rec.weight)
+        nn.init.zeros_(self.hypergraph_step.W_node_rec.bias)
+
+        # Hyperedge recurrent weights - Orthogonal initialization
+        nn.init.orthogonal_(self.hypergraph_step.W_hyperedge_rec.weight)
+        nn.init.zeros_(self.hypergraph_step.W_hyperedge_rec.bias)
+
+        # Input weights - Xavier initialization
+        nn.init.xavier_uniform_(self.hypergraph_step.W_node_in.weight)
+        nn.init.zeros_(self.hypergraph_step.W_node_in.bias)
+        nn.init.xavier_uniform_(self.hypergraph_step.W_hyperedge_in.weight)
+        nn.init.zeros_(self.hypergraph_step.W_hyperedge_in.bias)
+
+        # Output weights - Xavier initialization
         nn.init.xavier_uniform_(self.W_out.weight)
         nn.init.zeros_(self.W_out.bias)
 
-        # Initial state encoders
+        # Initial state encoders - Xavier initialization
         nn.init.xavier_uniform_(self.W_node_init.weight)
         nn.init.zeros_(self.W_node_init.bias)
         nn.init.xavier_uniform_(self.W_hyperedge_init.weight)
@@ -277,12 +294,25 @@ class HypergraphRNNLightning(L.LightningModule):
         self.weight_decay = weight_decay
 
     def training_step(self, batch) -> torch.Tensor:
-        inputs, targets = batch
+        inputs, target_positions, target_place_cells = batch
         # inputs has shape (batch_size, time_steps, input_size)
-        # targets has shape (batch_size, time_steps, output_size)
-        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+        # target_positions has shape (batch_size, time_steps, 2)
+        # target_place_cells has shape (batch_size, time_steps, output_size)
+        hidden_states, outputs = self.model(
+            inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+        )
 
-        loss = nn.functional.mse_loss(outputs, targets)
+        # Cross-entropy loss (same as vanilla RNN)
+        loss = nn.functional.cross_entropy(
+            outputs.reshape(-1, self.model.output_size),
+            target_place_cells.reshape(-1, self.model.output_size),
+        )
+
+        # Weight regularization on recurrent weights (both node and hyperedge)
+        loss += self.weight_decay * (
+            (self.model.hypergraph_step.W_node_rec.weight**2).sum()
+            + (self.model.hypergraph_step.W_hyperedge_rec.weight**2).sum()
+        )
 
         self.log(
             "train_loss",
@@ -296,10 +326,22 @@ class HypergraphRNNLightning(L.LightningModule):
         return loss
 
     def validation_step(self, batch) -> torch.Tensor:
-        inputs, targets = batch
-        hidden_states, outputs = self.model(inputs=inputs, pos_0=targets[:, 0, :])
+        inputs, target_positions, target_place_cells = batch
+        hidden_states, outputs = self.model(
+            inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+        )
 
-        loss = nn.functional.mse_loss(outputs, targets)
+        # Cross-entropy loss
+        loss = nn.functional.cross_entropy(
+            outputs.reshape(-1, self.model.output_size),
+            target_place_cells.reshape(-1, self.model.output_size),
+        )
+
+        # Weight regularization on recurrent weights
+        loss += self.weight_decay * (
+            (self.model.hypergraph_step.W_node_rec.weight**2).sum()
+            + (self.model.hypergraph_step.W_hyperedge_rec.weight**2).sum()
+        )
 
         self.log(
             "val_loss",
@@ -317,7 +359,7 @@ class HypergraphRNNLightning(L.LightningModule):
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.learning_rate,
-            weight_decay=self.weight_decay,
+            weight_decay=0.0,  # Manual weight decay on recurrent weights only
         )
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, step_size=self.step_size, gamma=self.gamma

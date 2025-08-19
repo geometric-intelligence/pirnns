@@ -48,7 +48,7 @@ class LossLoggerCallback(L.Callback):
 
 class PositionDecodingCallback(L.Callback):
     """Callback to compute and log position decoding error during validation."""
-    
+
     def __init__(
         self,
         place_cell_centers: torch.Tensor,
@@ -60,7 +60,9 @@ class PositionDecodingCallback(L.Callback):
         self.decode_k = decode_k
         self.log_every_n_epochs = log_every_n_epochs
 
-    def decode_position_from_place_cells(self, activation: torch.Tensor) -> torch.Tensor:
+    def decode_position_from_place_cells(
+        self, activation: torch.Tensor
+    ) -> torch.Tensor:
         """Decode position from place cell activations using top-k method."""
         # Move centers to same device as activation
         centers = self.place_cell_centers.to(activation.device)
@@ -69,39 +71,42 @@ class PositionDecodingCallback(L.Callback):
         return pred_pos
 
     def on_validation_batch_end(
-        self, 
-        trainer: L.Trainer, 
-        pl_module: L.LightningModule, 
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule,
         outputs: Any,
-        batch: Any, 
-        batch_idx: int, 
-        dataloader_idx: int = 0
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
     ) -> None:
         """Compute position decoding error for each validation batch."""
-        
+
         # Only run every N epochs to reduce computation
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
-            
+
         inputs, target_positions, target_place_cells = batch
-        
+
         # Get model outputs
         with torch.no_grad():
-            hidden_states, outputs = pl_module.model(
-                inputs=inputs, 
-                place_cells_0=target_place_cells[:, 0, :]
+            hidden_states, outputs = pl_module.model(  # type: ignore
+                inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
             )
-            
+
             # Convert to probabilities and decode positions
             place_cell_probs = torch.softmax(outputs, dim=-1)
-            predicted_positions = self.decode_position_from_place_cells(place_cell_probs)
-            position_error = torch.sqrt(((target_positions - predicted_positions)**2).sum(-1)).mean()
-            
+            predicted_positions = self.decode_position_from_place_cells(
+                place_cell_probs
+            )
+            position_error = torch.sqrt(
+                ((target_positions - predicted_positions) ** 2).sum(-1)
+            ).mean()
+
             # Log the error
             pl_module.log(
-                "val_position_error", 
-                position_error, 
-                on_step=False, 
+                "val_position_error",
+                position_error,
+                on_step=False,
                 on_epoch=True,
-                sync_dist=True
+                sync_dist=True,
             )
