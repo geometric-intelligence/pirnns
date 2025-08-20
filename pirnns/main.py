@@ -7,7 +7,11 @@ import yaml
 import torch
 import os
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
-from callbacks import LossLoggerCallback, PositionDecodingCallback
+from callbacks import (
+    LossLoggerCallback,
+    PositionDecodingCallback,
+    TrajectoryVisualizationCallback,
+)
 
 from datamodule import PathIntegrationDataModule
 
@@ -32,7 +36,7 @@ def create_vanilla_rnn_model(config: dict):
         hidden_size=config["hidden_size"],
         output_size=config["num_place_cells"],
         alpha=config["alpha"],
-        activation=getattr(nn, config.get("activation", "Tanh")),
+        activation=getattr(nn, config["activation"]),
     )
 
     lightning_module = RNNLightning(
@@ -114,6 +118,7 @@ def main(config: dict):
         batch_size=config["batch_size"],
         num_workers=config["num_workers"],
         train_val_split=config["train_val_split"],
+        velocity_representation=config["velocity_representation"],
         trajectory_duration=config["trajectory_duration"],
         num_time_steps=config["num_time_steps"],
         arena_size=config["arena_size"],
@@ -125,6 +130,7 @@ def main(config: dict):
         surround_scale=config["surround_scale"],
         DoG=config["DoG"],
         trajectory_type=config["trajectory_type"],
+        place_cell_layout=config["place_cell_layout"],
     )
 
     datamodule.prepare_data()
@@ -171,11 +177,24 @@ def main(config: dict):
         log_every_n_epochs=config["log_every_n_epochs"],
     )
 
+    trajectory_viz_callback = TrajectoryVisualizationCallback(
+        place_cell_centers=datamodule.place_cell_centers,
+        arena_size=config["arena_size"],
+        decode_k=config["decode_k"],
+        log_every_n_epochs=config["viz_log_every_n_epochs"],
+        num_trajectories_to_plot=3,
+    )
+
     trainer = Trainer(
         logger=wandb_logger,
         max_epochs=config["max_epochs"],
         default_root_dir=log_dir,
-        callbacks=[checkpoint_callback, loss_logger, position_decoding_callback],
+        callbacks=[
+            checkpoint_callback,
+            loss_logger,
+            position_decoding_callback,
+            trajectory_viz_callback,
+        ],
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
     )
 

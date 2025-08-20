@@ -1,9 +1,21 @@
+#!/usr/bin/env python3
+"""
+Standalone script to visualize trajectory data generation
+Run with: python debug_trajectories.py
+"""
+
+import yaml
+import torch
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
-import torch
 from datetime import datetime
 import os
+import sys
+
+# Add the parent directory to path so we can import datamodule
+sys.path.append("/home/facosta/pirnns/pirnns")
+from datamodule import PathIntegrationDataModule
 
 
 def create_trajectory_animation(
@@ -286,3 +298,281 @@ def create_trajectory_animation(
     print(f"Speed range: {speeds.min():.3f} to {speeds.max():.3f}")
 
     return output_filename
+
+
+def debug_trajectories(config_path="configs/vanilla_config.yaml", num_samples=3):
+    """Debug trajectory generation and visualization"""
+
+    # Load config
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    print("=== CONFIG ANALYSIS ===")
+    print(f"Trajectory duration: {config['trajectory_duration']} seconds")
+    print(f"Time steps: {config['num_time_steps']}")
+    print(
+        f"dt: {config['trajectory_duration'] / config['num_time_steps']:.3f} seconds per step"
+    )
+    print(f"Speed: μ={config['mu_speed']}, σ={config['sigma_speed']}")
+    print(f"Arena size: {config['arena_size']}")
+    print(
+        f"Max possible distance (at max speed for full duration): {config['mu_speed'] * config['trajectory_duration']:.3f}"
+    )
+    print(f"Arena diagonal: {config['arena_size'] * np.sqrt(2):.3f}")
+    print()
+
+    # Create datamodule with small number of trajectories for testing
+    datamodule = PathIntegrationDataModule(
+        num_trajectories=num_samples,
+        batch_size=num_samples,
+        num_workers=0,  # No multiprocessing for debugging
+        train_val_split=1.0,  # All data for testing
+        trajectory_duration=config["trajectory_duration"],
+        num_time_steps=config["num_time_steps"],
+        arena_size=config["arena_size"],
+        mu_speed=config["mu_speed"],
+        sigma_speed=config["sigma_speed"],
+        tau_vel=config["tau_vel"],
+        num_place_cells=config["num_place_cells"],
+        place_cell_rf=config["place_cell_rf"],
+        surround_scale=config["surround_scale"],
+        DoG=config["DoG"],
+        trajectory_type=config["trajectory_type"],
+    )
+
+    # Generate trajectories
+    print("=== GENERATING TRAJECTORIES ===")
+    inputs, positions, place_cell_activations = datamodule.simulate_trajectories(
+        device="cpu"
+    )
+
+    print(f"Generated {inputs.shape[0]} trajectories")
+    print(f"Input shape: {inputs.shape} (batch, time, features)")
+    print(f"Position shape: {positions.shape} (batch, time, 2)")
+    print(f"Place cell shape: {place_cell_activations.shape}")
+
+    # Analyze trajectory statistics
+    print("\n=== TRAJECTORY STATISTICS ===")
+    distances = torch.norm(positions[:, 1:] - positions[:, :-1], dim=-1).sum(dim=1)
+    speeds = inputs[..., 1].mean(dim=1)  # inputs[..., 1] contains speeds
+
+    print("Total distances traveled:")
+    print(f"  Mean: {distances.mean():.4f}")
+    print(f"  Std: {distances.std():.4f}")
+    print(f"  Min: {distances.min():.4f}")
+    print(f"  Max: {distances.max():.4f}")
+
+    print("Average speeds:")
+    print(f"  Mean: {speeds.mean():.4f}")
+    print(f"  Std: {speeds.std():.4f}")
+
+    print("\nPosition ranges:")
+    print(f"  X: [{positions[..., 0].min():.3f}, {positions[..., 0].max():.3f}]")
+    print(f"  Y: [{positions[..., 1].min():.3f}, {positions[..., 1].max():.3f}]")
+
+    xlim = [-config["arena_size"] / 2, config["arena_size"] / 2]
+    ylim = [-config["arena_size"] / 2, config["arena_size"] / 2]
+
+    print(f"\nUsing axis limits: x={xlim}, y={ylim}")
+
+    # Create visualization: Each trajectory gets its own row with 3 plots
+    fig, axes = plt.subplots(num_samples, 3, figsize=(18, 6 * num_samples))
+    if num_samples == 1:
+        axes = axes.reshape(1, -1)  # Ensure 2D array even for single trajectory
+
+    place_centers = datamodule.place_cell_centers.numpy()
+    print("\nPlace cell centers range:")
+    print(f"  X: [{place_centers[:, 0].min():.3f}, {place_centers[:, 0].max():.3f}]")
+    print(f"  Y: [{place_centers[:, 1].min():.3f}, {place_centers[:, 1].max():.3f}]")
+
+    for i in range(num_samples):
+        traj = positions[i].numpy()
+        print(f"\nTrajectory {i+1} data:")
+        print(f"  Start: ({traj[0, 0]:.3f}, {traj[0, 1]:.3f})")
+        print(f"  End: ({traj[-1, 0]:.3f}, {traj[-1, 1]:.3f})")
+        print(f"  X range: [{traj[:, 0].min():.3f}, {traj[:, 0].max():.3f}]")
+        print(f"  Y range: [{traj[:, 1].min():.3f}, {traj[:, 1].max():.3f}]")
+
+        # === TRAJECTORY PLOT ===
+        ax_traj = axes[i, 0]
+
+        # Plot trajectory
+        ax_traj.plot(
+            traj[:, 0], traj[:, 1], "b-", linewidth=3, label="Trajectory", alpha=0.8
+        )
+
+        # Mark start and end
+        ax_traj.scatter(
+            traj[0, 0],
+            traj[0, 1],
+            c="green",
+            s=150,
+            marker="o",
+            label="Start",
+            zorder=5,
+            edgecolors="black",
+            linewidth=2,
+        )
+        ax_traj.scatter(
+            traj[-1, 0],
+            traj[-1, 1],
+            c="red",
+            s=150,
+            marker="s",
+            label="End",
+            zorder=5,
+            edgecolors="black",
+            linewidth=2,
+        )
+
+        # Mark all points to see trajectory detail
+        ax_traj.scatter(
+            traj[:, 0],
+            traj[:, 1],
+            c=range(len(traj)),
+            cmap="plasma",
+            s=30,
+            alpha=0.7,
+            zorder=3,
+        )
+
+        ax_traj.set_xlim(xlim)
+        ax_traj.set_ylim(ylim)
+        ax_traj.set_aspect("equal")
+        ax_traj.grid(True, alpha=0.3)
+        ax_traj.set_title(f"Trajectory {i+1}\nDistance: {distances[i]:.4f}")
+        ax_traj.legend()
+        ax_traj.set_xlabel("X Position")
+        ax_traj.set_ylabel("Y Position")
+
+        # Add trajectory info
+        speed_info = f"Avg Speed: {speeds[i]:.3f}"
+        ax_traj.text(
+            0.02,
+            0.98,
+            speed_info,
+            transform=ax_traj.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+        )
+
+        # === PLACE CELL ACTIVATIONS AT START ===
+        ax_start = axes[i, 1]
+
+        start_activations = place_cell_activations[i, 0, :].numpy()  # t=0
+        start_pos = positions[i, 0].numpy()
+
+        # Plot place cell activations
+        scatter_start = ax_start.scatter(
+            place_centers[:, 0],
+            place_centers[:, 1],
+            c=start_activations,
+            cmap="viridis",
+            s=30,
+            alpha=0.8,
+        )
+
+        # Mark agent position
+        ax_start.scatter(
+            start_pos[0],
+            start_pos[1],
+            c="green",
+            s=200,
+            marker="*",
+            label="Start Position",
+            zorder=5,
+            edgecolors="black",
+            linewidth=2,
+        )
+
+        ax_start.set_xlim(xlim)
+        ax_start.set_ylim(ylim)
+        ax_start.set_aspect("equal")
+        ax_start.grid(True, alpha=0.3)
+        ax_start.set_title(
+            f"Place Cells at START\n({start_pos[0]:.3f}, {start_pos[1]:.3f})"
+        )
+        ax_start.legend()
+        ax_start.set_xlabel("X Position")
+        ax_start.set_ylabel("Y Position")
+
+        # Add colorbar
+        cbar_start = plt.colorbar(scatter_start, ax=ax_start)
+        cbar_start.set_label("Activation")
+
+        # === PLACE CELL ACTIVATIONS AT END ===
+        ax_end = axes[i, 2]
+
+        end_activations = place_cell_activations[i, -1, :].numpy()  # t=final
+        end_pos = positions[i, -1].numpy()
+
+        # Plot place cell activations
+        scatter_end = ax_end.scatter(
+            place_centers[:, 0],
+            place_centers[:, 1],
+            c=end_activations,
+            cmap="viridis",
+            s=30,
+            alpha=0.8,
+        )
+
+        # Mark agent position
+        ax_end.scatter(
+            end_pos[0],
+            end_pos[1],
+            c="red",
+            s=200,
+            marker="*",
+            label="End Position",
+            zorder=5,
+            edgecolors="black",
+            linewidth=2,
+        )
+
+        ax_end.set_xlim(xlim)
+        ax_end.set_ylim(ylim)
+        ax_end.set_aspect("equal")
+        ax_end.grid(True, alpha=0.3)
+        ax_end.set_title(f"Place Cells at END\n({end_pos[0]:.3f}, {end_pos[1]:.3f})")
+        ax_end.legend()
+        ax_end.set_xlabel("X Position")
+        ax_end.set_ylabel("Y Position")
+
+        # Add colorbar
+        cbar_end = plt.colorbar(scatter_end, ax=ax_end)
+        cbar_end.set_label("Activation")
+
+    plt.tight_layout()
+    plt.suptitle(f"Trajectory Debug Analysis (n={num_samples})", fontsize=16, y=0.98)
+
+    # Save figure
+    output_path = "debug_trajectories.png"
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    print("\n=== VISUALIZATION SAVED ===")
+    print(f"Saved to: {output_path}")
+
+    return distances, speeds, positions
+
+
+if __name__ == "__main__":
+    # Change to the script directory
+    os.chdir("/home/facosta/pirnns/pirnns")
+
+    print("Starting trajectory debugging...")
+    distances, speeds, positions = debug_trajectories(num_samples=3)
+
+    print("\n=== RECOMMENDATIONS ===")
+    if distances.mean() < 0.1:
+        print("❌ Trajectories are very short! Consider:")
+        print("   - Increasing trajectory_duration (e.g., 10-20 seconds)")
+        print("   - Increasing mu_speed (e.g., 0.5-1.0)")
+        print("   - Increasing num_time_steps for more detail")
+    elif distances.mean() > 1.0:
+        print("✅ Trajectories look reasonable length")
+    else:
+        print("⚠️  Trajectories are short but might be visible")
+
+    print(
+        f"\nCurrent trajectory length / arena size ratio: {distances.mean() / 2.2:.3f}"
+    )
+    print("Good ratio should be > 0.1 for visible trajectories")

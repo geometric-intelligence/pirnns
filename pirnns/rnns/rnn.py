@@ -53,10 +53,10 @@ class RNN(nn.Module):
         self.output_size = output_size
 
         self.rnn_step = RNNStep(input_size, hidden_size, alpha, activation)
-        self.W_out = nn.Linear(hidden_size, output_size)
+        self.W_out = nn.Linear(hidden_size, output_size, bias=False)
 
         # Layer to initialize hidden state
-        self.W_h_init = nn.Linear(output_size, hidden_size)
+        self.W_h_init = nn.Linear(output_size, hidden_size, bias=False)
 
         self.initialize_weights()
 
@@ -67,7 +67,7 @@ class RNN(nn.Module):
         # place_cells_0 has shape (batch_size, output_size)
         hidden_states = []
         outputs = []
-        hidden = torch.tanh(self.W_h_init(place_cells_0))
+        hidden = self.W_h_init(place_cells_0)
         for t in range(inputs.shape[1]):
             input_t = inputs[:, t, :]
             hidden = self.rnn_step(input_t, hidden)
@@ -87,11 +87,9 @@ class RNN(nn.Module):
 
         # 3. Output weights (W_out) - Xavier initialization
         nn.init.xavier_uniform_(self.W_out.weight)
-        nn.init.zeros_(self.W_out.bias)
 
         # 4. Initial hidden state encoder (W_h_init) - Xavier initialization
         nn.init.xavier_uniform_(self.W_h_init.weight)
-        nn.init.zeros_(self.W_h_init.bias)
 
 
 class RNNLightning(L.LightningModule):
@@ -125,10 +123,11 @@ class RNNLightning(L.LightningModule):
         )
 
         # Cross-entropy loss
-        loss = nn.functional.cross_entropy(
-            outputs.reshape(-1, self.model.output_size),
-            target_place_cells.reshape(-1, self.model.output_size),
-        )
+        y = target_place_cells.reshape(-1, self.model.output_size)
+        yhat = torch.softmax(outputs.reshape(-1, self.model.output_size), dim=-1)
+        loss = (
+            -(y * torch.log(yhat + 1e-8)).sum(-1).mean()
+        )  # Add small epsilon for numerical stability
 
         # Weight regularization on recurrent weights
         loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
@@ -154,10 +153,11 @@ class RNNLightning(L.LightningModule):
         )
 
         # Cross-entropy loss
-        loss = nn.functional.cross_entropy(
-            outputs.reshape(-1, self.model.output_size),
-            target_place_cells.reshape(-1, self.model.output_size),
-        )
+        y = target_place_cells.reshape(-1, self.model.output_size)
+        yhat = torch.softmax(outputs.reshape(-1, self.model.output_size), dim=-1)
+        loss = (
+            -(y * torch.log(yhat + 1e-8)).sum(-1).mean()
+        )  # Add small epsilon for numerical stability
 
         # Weight regularization on recurrent weights
         loss += self.weight_decay * (self.model.rnn_step.W_rec.weight**2).sum()
@@ -191,3 +191,6 @@ class RNNLightning(L.LightningModule):
                 "monitor": "val_loss",
             },
         }
+
+
+

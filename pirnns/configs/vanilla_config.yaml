@@ -1,20 +1,21 @@
 # Project configuration
 project_name: "path-integration-rnn"
 model_type: "vanilla"
-device: "cuda"
+device: 'cuda'
 seed: 0 # Global seed
 
 # Data configuration  
 num_trajectories: 100000
-trajectory_type: 'ornstein_uhlenbeck'
-batch_size: 128
+trajectory_type: 'random_walk' #'ornstein_uhlenbeck'
+batch_size: 200
 num_workers: 7
 train_val_split: 0.8
+velocity_representation: 'cartesian' #'polar'
 
 
 # Trajectory configuration
-trajectory_duration: 5 # 2 seconds
-num_time_steps: 50 # dt = 0.1s (reasonable neural dynamics timescale)
+trajectory_duration: 2 # 2 seconds
+num_time_steps: 20 # dt = 0.1s (reasonable neural dynamics timescale)
 mu_speed: 0.2
 sigma_speed: 0.5
 tau_vel: 1
@@ -22,26 +23,28 @@ tau_vel: 1
 # Place cell configuration
 arena_size: 2.2
 num_place_cells: 512
-place_cell_rf: 0.12
+place_cell_rf: 0.2
 surround_scale: 2
 DoG: true
+place_cell_layout: 'uniform'
 
 
 # RNN configuration
 input_size: 2
 hidden_size: 4096
-alpha: 0.3
-activation: "Tanh"  # PyTorch activation function name
+alpha: 1
+activation: "ReLU" #"Tanh"  # PyTorch activation function name
 
 # Training configuration
-learning_rate: 1e-4
-weight_decay: 1e-4
+learning_rate: 1.0e-4
+weight_decay: 1.0e-4
 step_size: 100
 gamma: 0.5
 max_epochs: 100
 
 #Callback configs
 decode_k: 3
-log_every_n_epochs: 5
+log_every_n_epochs: 1
+viz_log_every_n_epochs: 10
 
 

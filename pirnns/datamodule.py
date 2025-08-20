@@ -13,6 +13,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         batch_size: int,
         num_workers: int,
         train_val_split: float,
+        velocity_representation: str,
         trajectory_duration: float,
         num_time_steps: int,
         arena_size: float,
@@ -26,12 +27,14 @@ class PathIntegrationDataModule(L.LightningDataModule):
         DoG: bool,
         # Trajectory generation
         trajectory_type: str = "ornstein_uhlenbeck",
+        place_cell_layout: str = "random",  # Add this parameter
     ) -> None:
         super().__init__()
         self.num_trajectories = num_trajectories
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_val_split = train_val_split
+        self.velocity_representation = velocity_representation
         self.trajectory_duration = trajectory_duration
         self.num_time_steps = num_time_steps
         self.dt = trajectory_duration / num_time_steps
@@ -50,18 +53,50 @@ class PathIntegrationDataModule(L.LightningDataModule):
         self.surround_scale = surround_scale
         self.DoG = DoG
 
-        # Initialize place cell centers
-        centers_x = np.random.uniform(
-            -arena_size / 2, arena_size / 2, (num_place_cells,)
-        )
-        centers_y = np.random.uniform(
-            -arena_size / 2, arena_size / 2, (num_place_cells,)
-        )
+        self.place_cell_layout = place_cell_layout
+        
+        # Initialize place cell centers based on layout
+        if place_cell_layout == "random":
+            centers_x = np.random.uniform(
+                -arena_size / 2, arena_size / 2, (num_place_cells,)
+            )
+            centers_y = np.random.uniform(
+                -arena_size / 2, arena_size / 2, (num_place_cells,)
+            )
+        elif place_cell_layout == "uniform":
+            centers_x, centers_y = self._create_uniform_place_cells(
+                num_place_cells, arena_size
+            )
+        else:
+            raise ValueError(f"Unknown place_cell_layout: {place_cell_layout}")
+            
         self.place_cell_centers = torch.tensor(
             np.vstack([centers_x, centers_y]).T, dtype=torch.float32
         )
 
         self.softmax = torch.nn.Softmax(dim=-1)
+
+    def _create_uniform_place_cells(self, num_place_cells: int, arena_size: float):
+        """Create uniformly spaced place cell centers on a grid."""
+        # Find grid dimensions that fit num_place_cells
+        grid_size = int(np.ceil(np.sqrt(num_place_cells)))
+        
+        # Create uniform grid
+        x_coords = np.linspace(-arena_size/2, arena_size/2, grid_size)
+        y_coords = np.linspace(-arena_size/2, arena_size/2, grid_size)
+        
+        # Create meshgrid and flatten
+        xx, yy = np.meshgrid(x_coords, y_coords)
+        centers_x = xx.flatten()
+        centers_y = yy.flatten()
+        
+        # Take only the first num_place_cells (in case grid_size^2 > num_place_cells)
+        centers_x = centers_x[:num_place_cells]
+        centers_y = centers_y[:num_place_cells]
+        
+        print(f"Created {len(centers_x)} uniform place cells in {grid_size}x{grid_size} grid")
+        
+        return centers_x, centers_y
 
     def get_place_cell_activations(self, pos: torch.Tensor) -> torch.Tensor:
         """
@@ -74,12 +109,11 @@ class PathIntegrationDataModule(L.LightningDataModule):
         centers = self.place_cell_centers.to(pos.device)
 
         # Compute distances: pos is [B, T, 2], centers is [Np, 2]
-        d = torch.abs(pos[:, :, None, :] - centers[None, None, ...])
+        d = torch.abs(pos[:, :, None, :] - centers[None, None, ...]).float()
 
         # Compute squared distance
         norm2 = (d**2).sum(-1)  # [B, T, Np]
 
-        # Compute place cell activations
         # Compute place cell activations with softmax normalization
         outputs = self.softmax(-norm2 / (2 * self.place_cell_rf**2))
 
@@ -111,7 +145,9 @@ class PathIntegrationDataModule(L.LightningDataModule):
         place_cell_activations : (batch, T, num_place_cells), ground-truth place cell activations
         """
         # --- initial position & velocity ----------------------------------------
-        pos = torch.rand(self.num_trajectories, 2, device=device) * self.arena_size
+        pos = (
+            torch.rand(self.num_trajectories, 2, device=device) - 0.5
+        ) * self.arena_size
         # sample initial heading uniformly in (0, 2pi), speed around mu_speed
         hd0 = torch.rand(self.num_trajectories, device=device) * 2 * torch.pi
         spd0 = torch.clamp(
@@ -138,23 +174,27 @@ class PathIntegrationDataModule(L.LightningDataModule):
             pos = pos + vel * self.dt
 
             # --- reflective boundaries -----------------------------------------
-            out_left = pos[:, 0] < 0
-            out_right = pos[:, 0] > self.arena_size
-            out_bottom = pos[:, 1] < 0
-            out_top = pos[:, 1] > self.arena_size
+            out_left = pos[:, 0] < -self.arena_size / 2
+            out_right = pos[:, 0] > self.arena_size / 2
+            out_bottom = pos[:, 1] < -self.arena_size / 2
+            out_top = pos[:, 1] > self.arena_size / 2
 
             # reflect positions and flip corresponding velocity component
             if out_left.any():
-                pos[out_left, 0] *= -1
+                # Reflect across left boundary at -arena_size/2
+                pos[out_left, 0] = -self.arena_size - pos[out_left, 0]
                 vel[out_left, 0] *= -1
             if out_right.any():
-                pos[out_right, 0] = 2 * self.arena_size - pos[out_right, 0]
+                # Reflect across right boundary at arena_size/2
+                pos[out_right, 0] = self.arena_size - pos[out_right, 0]
                 vel[out_right, 0] *= -1
             if out_bottom.any():
-                pos[out_bottom, 1] *= -1
+                # Reflect across bottom boundary at -arena_size/2
+                pos[out_bottom, 1] = -self.arena_size - pos[out_bottom, 1]
                 vel[out_bottom, 1] *= -1
             if out_top.any():
-                pos[out_top, 1] = 2 * self.arena_size - pos[out_top, 1]
+                # Reflect across top boundary at arena_size/2
+                pos[out_top, 1] = self.arena_size - pos[out_top, 1]
                 vel[out_top, 1] *= -1
 
             pos_list.append(pos)
@@ -163,46 +203,145 @@ class PathIntegrationDataModule(L.LightningDataModule):
         # Convert lists to tensors
         vel_all = torch.stack(vel_list, 1)  # (batch, T, 2)
         pos_all = torch.stack(pos_list, 1)  # (batch, T, 2)
-        speeds = torch.linalg.norm(vel_all, dim=-1)
-        headings = torch.atan2(vel_all[..., 1], vel_all[..., 0]) % (2 * torch.pi)
-
-        inputs = torch.stack((headings, speeds), dim=-1)  # (batch, T, 2)
+        if self.velocity_representation == "cartesian":
+            inputs = vel_all
+        elif self.velocity_representation == "polar":
+            speeds = torch.linalg.norm(vel_all, dim=-1)
+            headings = torch.atan2(vel_all[..., 1], vel_all[..., 0]) % (2 * torch.pi)
+            inputs = torch.stack((headings, speeds), dim=-1)  # (batch, T, 2)
+        else:
+            raise ValueError(
+                f"Invalid velocity representation: {self.velocity_representation}"
+            )
 
         # Compute place cell activations as targets
         place_cell_activations = self.get_place_cell_activations(pos_all)
 
         return inputs, pos_all, place_cell_activations
 
-    def simulate_trajectories(
-        self,
-        device: str = "cpu",
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _simulate_random_walk_trajectories(self, device: str = "cpu"):
+        """
+        Simulates trajectories using random walk with wall avoidance (from original grid cell paper).
+        
+        Returns numpy arrays instead of tensors for efficiency.
+        """
+        # FIXED parameters from old code (not configurable)
+        dt = 0.02  # Fixed from old code
+        sequence_length = 20  # Fixed from old code  
+        sigma = 5.76 * 2  # stdev rotation velocity (rads/sec)
+        b = 0.13 * 2 * np.pi  # forward velocity rayleigh dist scale (m/sec)
+        mu = 0  # turn angle bias
+        border_region = 0.03  # meters
+        
+        # Use fixed sequence length (ignore self.num_time_steps for this trajectory type)
+        samples = sequence_length
+        
+        # Initialize variables
+        batch_size = self.num_trajectories
+        position = np.zeros([batch_size, samples + 2, 2])
+        head_dir = np.zeros([batch_size, samples + 2])
+        position[:, 0, 0] = np.random.uniform(-self.arena_size / 2, self.arena_size / 2, batch_size)
+        position[:, 0, 1] = np.random.uniform(-self.arena_size / 2, self.arena_size / 2, batch_size)
+        head_dir[:, 0] = np.random.uniform(0, 2 * np.pi, batch_size)
+        velocity = np.zeros([batch_size, samples + 2])
+
+        # Generate sequence of random boosts and turns
+        random_turn = np.random.normal(mu, sigma, [batch_size, samples + 1])
+        random_vel = np.random.rayleigh(b, [batch_size, samples + 1])
+        v = np.abs(np.random.normal(0, b * np.pi / 2, batch_size))
+
+        def avoid_wall(position, hd, box_width, box_height):
+            """Wall avoidance from old code"""
+            x = position[:, 0]
+            y = position[:, 1]
+            dists = [box_width / 2 - x, box_height / 2 - y, box_width / 2 + x, box_height / 2 + y]
+            d_wall = np.min(dists, axis=0)
+            angles = np.arange(4) * np.pi / 2
+            theta = angles[np.argmin(dists, axis=0)]
+            hd = np.mod(hd, 2 * np.pi)
+            a_wall = hd - theta
+            a_wall = np.mod(a_wall + np.pi, 2 * np.pi) - np.pi
+
+            is_near_wall = (d_wall < border_region) * (np.abs(a_wall) < np.pi / 2)
+            turn_angle = np.zeros_like(hd)
+            turn_angle[is_near_wall] = np.sign(a_wall[is_near_wall]) * (np.pi / 2 - np.abs(a_wall[is_near_wall]))
+
+            return is_near_wall, turn_angle
+
+        for t in range(samples + 1):
+            # Update velocity
+            v = random_vel[:, t]
+            turn_angle = np.zeros(batch_size)
+
+            # Wall avoidance (not periodic boundaries)
+            is_near_wall, turn_angle = avoid_wall(position[:, t], head_dir[:, t], self.arena_size, self.arena_size)
+            v[is_near_wall] *= 0.25
+
+            # Update turn angle
+            turn_angle += dt * random_turn[:, t]
+
+            # Take a step
+            velocity[:, t] = v * dt
+            update = velocity[:, t, None] * np.stack([np.cos(head_dir[:, t]), np.sin(head_dir[:, t])], axis=-1)
+            position[:, t + 1] = position[:, t] + update
+
+            # Rotate head direction
+            head_dir[:, t + 1] = head_dir[:, t] + turn_angle
+
+        head_dir = np.mod(head_dir + np.pi, 2 * np.pi) - np.pi  # Periodic variable
+
+        # Extract trajectories (like old code)
+        init_pos = position[:, 1, :]  # Use position at t=1 as initial
+        traj_pos = position[:, 2:, :]  # Positions from t=2 onwards
+        ego_v = velocity[:, 1:-1]  # Ego velocities
+        target_hd = head_dir[:, 1:-1]  # Head directions
+
+        # Choose velocity representation (stay in numpy):
+        if self.velocity_representation == "cartesian":
+            # Convert to cartesian velocities (like old code does)
+            v_inputs = np.stack([ego_v * np.cos(target_hd), ego_v * np.sin(target_hd)], axis=-1)
+        elif self.velocity_representation == "polar":
+            # Keep as polar [heading, speed]
+            v_inputs = np.stack([target_hd, ego_v], axis=-1)
+        else:
+            raise ValueError(f"Invalid velocity representation: {self.velocity_representation}")
+        
+        # Compute place cell activations (need tensors for this, then convert back)
+        pos_tensor = torch.tensor(traj_pos, dtype=torch.float32, device=device)
+        place_cell_activations = self.get_place_cell_activations(pos_tensor)
+        place_cell_activations_np = place_cell_activations.cpu().numpy()
+        
+        # Return all numpy arrays
+        return v_inputs, traj_pos, place_cell_activations_np
+
+    def simulate_trajectories(self, device: str = "cpu") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Simulates trajectories based on the specified trajectory type.
-
-        Parameters
-        ----------
-        device : str
-            The device to use for the simulation.
-
-        Returns
-        -------
-        inputs : (batch, T, 2), [heading, speed] at each time step
-        positions : (batch, T, 2), ground-truth (x,y) positions
-        place_cell_activations : (batch, T, num_place_cells), ground-truth place cell activations
+        
+        Returns:
+            inputs: numpy array of shape (batch, T, 2)
+            positions: numpy array of shape (batch, T, 2) 
+            place_cell_activations: numpy array of shape (batch, T, num_place_cells)
         """
         if self.trajectory_type == "ornstein_uhlenbeck":
             return self._simulate_ornstein_uhlenbeck_trajectories(device)
+        elif self.trajectory_type == "random_walk":
+            return self._simulate_random_walk_trajectories(device)
         else:
             raise NotImplementedError(
                 f"Trajectory type '{self.trajectory_type}' is not implemented. "
-                f"Currently supported: ['ornstein_uhlenbeck']"
+                f"Currently supported: ['ornstein_uhlenbeck', 'random_walk']"
             )
 
     def setup(self, stage=None) -> None:
-        inputs, positions, place_cell_activations = self.simulate_trajectories(
-            device="cpu"
-        )
+        # Get numpy arrays from trajectory generation
+        inputs_np, positions_np, place_cells_np = self.simulate_trajectories(device="cpu")
+        
+        # Convert to tensors ONCE
+        inputs = torch.tensor(inputs_np, dtype=torch.float32)
+        positions = torch.tensor(positions_np, dtype=torch.float32) 
+        place_cell_activations = torch.tensor(place_cells_np, dtype=torch.float32)
+
         full_dataset = TensorDataset(inputs, positions, place_cell_activations)
 
         # split into train and val
