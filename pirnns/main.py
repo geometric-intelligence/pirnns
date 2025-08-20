@@ -109,6 +109,7 @@ def main(config: dict):
         name=f"{config['project_name']}_{model_type}_{run_id}",
         dir=log_dir,
         save_dir=log_dir,
+        config=config,
     )
     print("Wandb initialized. Find logs at: ", log_dir)
     print(f"Wandb run name: {config['project_name']}_{model_type}_{run_id}")
@@ -119,12 +120,14 @@ def main(config: dict):
         num_workers=config["num_workers"],
         train_val_split=config["train_val_split"],
         velocity_representation=config["velocity_representation"],
-        trajectory_duration=config["trajectory_duration"],
+        dt=config["dt"],
         num_time_steps=config["num_time_steps"],
         arena_size=config["arena_size"],
-        mu_speed=config["mu_speed"],
+        speed_scale=config["speed_scale"],
         sigma_speed=config["sigma_speed"],
         tau_vel=config["tau_vel"],
+        sigma_rotation=config["sigma_rotation"],
+        border_region=config["border_region"],
         num_place_cells=config["num_place_cells"],
         place_cell_rf=config["place_cell_rf"],
         surround_scale=config["surround_scale"],

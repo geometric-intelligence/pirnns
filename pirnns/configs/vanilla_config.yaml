@@ -4,21 +4,24 @@ model_type: "vanilla"
 device: 'cuda'
 seed: 0 # Global seed
 
-# Data configuration  
-num_trajectories: 100000
+# Data (trajectory) configuration
+num_trajectories: 20000
 trajectory_type: 'random_walk' #'ornstein_uhlenbeck'
 batch_size: 200
 num_workers: 7
 train_val_split: 0.8
 velocity_representation: 'cartesian' #'polar'
+dt: 0.1 #0.1s (reasonable neural dynamics timescale)
+num_time_steps: 20
+speed_scale: 0.2
 
-
-# Trajectory configuration
-trajectory_duration: 2 # 2 seconds
-num_time_steps: 20 # dt = 0.1s (reasonable neural dynamics timescale)
-mu_speed: 0.2
+# Specific to 'ornstein_uhlenbeck' trajectory generation
 sigma_speed: 0.5
 tau_vel: 1
+
+#Specific to 'random_walk'
+sigma_rotation: 11.52
+border_region: 0.03
 
 # Place cell configuration
 arena_size: 2.2

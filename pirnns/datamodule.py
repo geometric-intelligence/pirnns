@@ -14,12 +14,14 @@ class PathIntegrationDataModule(L.LightningDataModule):
         num_workers: int,
         train_val_split: float,
         velocity_representation: str,
-        trajectory_duration: float,
+        dt: float,  # Use dt directly instead of trajectory_duration
         num_time_steps: int,
         arena_size: float,
-        mu_speed: float,
+        speed_scale: float,
         sigma_speed: float,
         tau_vel: float,
+        sigma_rotation: float,
+        border_region: float,
         # Place cell parameters
         num_place_cells: int,
         place_cell_rf: float,
@@ -35,14 +37,15 @@ class PathIntegrationDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.train_val_split = train_val_split
         self.velocity_representation = velocity_representation
-        self.trajectory_duration = trajectory_duration
+        self.dt = dt  # Use dt directly
         self.num_time_steps = num_time_steps
-        self.dt = trajectory_duration / num_time_steps
 
         self.arena_size = arena_size
-        self.mu_speed = mu_speed
+        self.speed_scale = speed_scale # typical speed (m/sec)
         self.sigma_speed = sigma_speed
         self.tau_vel = tau_vel
+        self.sigma_rotation = sigma_rotation # stdev rotation velocity (rads/sec)   
+        self.border_region = border_region # meters
 
         # Trajectory generation type
         self.trajectory_type = trajectory_type
@@ -102,8 +105,8 @@ class PathIntegrationDataModule(L.LightningDataModule):
         """
         Compute place cell activations for given positions.
 
-        :param pos: Positions of shape [batch_size, sequence_length, 2]
-        :return: Place cell activations [batch_size, sequence_length, num_place_cells]
+        :param pos: Positions of shape [batch_size, num_time_steps, 2]
+        :return: Place cell activations [batch_size, num_time_steps, num_place_cells]
         """
         # Move centers to same device as pos
         centers = self.place_cell_centers.to(pos.device)
@@ -118,7 +121,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         outputs = self.softmax(-norm2 / (2 * self.place_cell_rf**2))
 
         if self.DoG:
-            # Subtract surround (larger sigma)
+            # Subtract surround (larger width)
             surround = self.softmax(
                 -norm2 / (2 * self.surround_scale * self.place_cell_rf**2)
             )
@@ -148,11 +151,11 @@ class PathIntegrationDataModule(L.LightningDataModule):
         pos = (
             torch.rand(self.num_trajectories, 2, device=device) - 0.5
         ) * self.arena_size
-        # sample initial heading uniformly in (0, 2pi), speed around mu_speed
+        # sample initial heading uniformly in (0, 2pi), speed around speed_scale
         hd0 = torch.rand(self.num_trajectories, device=device) * 2 * torch.pi
         spd0 = torch.clamp(
             torch.randn(self.num_trajectories, device=device) * self.sigma_speed
-            + self.mu_speed,
+            + self.speed_scale,
             min=0.0,
         )
         vel = torch.stack((torch.cos(hd0), torch.sin(hd0)), dim=-1) * spd0.unsqueeze(-1)
@@ -225,30 +228,23 @@ class PathIntegrationDataModule(L.LightningDataModule):
         
         Returns numpy arrays instead of tensors for efficiency.
         """
-        # FIXED parameters from old code (not configurable)
-        dt = 0.02  # Fixed from old code
-        sequence_length = 20  # Fixed from old code  
-        sigma = 5.76 * 2  # stdev rotation velocity (rads/sec)
-        b = 0.13 * 2 * np.pi  # forward velocity rayleigh dist scale (m/sec)
-        mu = 0  # turn angle bias
-        border_region = 0.03  # meters
+        # Use configurable time parameters
+        dt = self.dt
         
-        # Use fixed sequence length (ignore self.num_time_steps for this trajectory type)
-        samples = sequence_length
         
         # Initialize variables
         batch_size = self.num_trajectories
-        position = np.zeros([batch_size, samples + 2, 2])
-        head_dir = np.zeros([batch_size, samples + 2])
+        position = np.zeros([batch_size, self.num_time_steps + 2, 2])
+        head_dir = np.zeros([batch_size, self.num_time_steps + 2])
         position[:, 0, 0] = np.random.uniform(-self.arena_size / 2, self.arena_size / 2, batch_size)
         position[:, 0, 1] = np.random.uniform(-self.arena_size / 2, self.arena_size / 2, batch_size)
         head_dir[:, 0] = np.random.uniform(0, 2 * np.pi, batch_size)
-        velocity = np.zeros([batch_size, samples + 2])
+        velocity = np.zeros([batch_size, self.num_time_steps + 2])
 
         # Generate sequence of random boosts and turns
-        random_turn = np.random.normal(mu, sigma, [batch_size, samples + 1])
-        random_vel = np.random.rayleigh(b, [batch_size, samples + 1])
-        v = np.abs(np.random.normal(0, b * np.pi / 2, batch_size))
+        random_turn = np.random.normal(0, self.sigma_rotation, [batch_size, self.num_time_steps + 1])
+        random_vel = np.random.rayleigh(self.speed_scale, [batch_size, self.num_time_steps + 1])
+        v = np.abs(np.random.normal(0, self.speed_scale * np.pi / 2, batch_size))
 
         def avoid_wall(position, hd, box_width, box_height):
             """Wall avoidance from old code"""
@@ -262,13 +258,13 @@ class PathIntegrationDataModule(L.LightningDataModule):
             a_wall = hd - theta
             a_wall = np.mod(a_wall + np.pi, 2 * np.pi) - np.pi
 
-            is_near_wall = (d_wall < border_region) * (np.abs(a_wall) < np.pi / 2)
+            is_near_wall = (d_wall < self.border_region) * (np.abs(a_wall) < np.pi / 2)
             turn_angle = np.zeros_like(hd)
             turn_angle[is_near_wall] = np.sign(a_wall[is_near_wall]) * (np.pi / 2 - np.abs(a_wall[is_near_wall]))
 
             return is_near_wall, turn_angle
 
-        for t in range(samples + 1):
+        for t in range(self.num_time_steps + 1):
             # Update velocity
             v = random_vel[:, t]
             turn_angle = np.zeros(batch_size)
