@@ -10,10 +10,10 @@ To train a path-integrating RNN, take the following steps:
 python main.py --config configs/vanilla_config.yaml
 ```
 
-or to run the hypergraph RNN, use the following command:
+or to run the coupled RNN, use the following command:
 
 ```bash
-python main.py --config configs/hypergraph_config.yaml
+python main.py --config configs/coupled_config.yaml
 ```
 
 3. The script will create a run ID (based on the time of the run) and save the trained model in `logs/checkpoints/<run_id>/`.

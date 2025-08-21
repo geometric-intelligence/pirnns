@@ -16,6 +16,7 @@ from callbacks import (
 from datamodule import PathIntegrationDataModule
 
 from pirnns.rnns.rnn import RNN, RNNLightning
+from pirnns.rnns.coupled_rnn import CoupledRNN, CoupledRNNLightning
 from pirnns.topornns.hypergraph_rnn import (
     Hypergraph,
     HypergraphRNN,
@@ -92,6 +93,30 @@ def create_hypergraph_rnn_model(config: dict):
     return model, lightning_module
 
 
+def create_coupled_rnn_model(config: dict):
+    """Create CoupledRNN model and lightning module."""
+    model = CoupledRNN(
+        input_size=config["input_size"],
+        pop1_size=config["pop1_size"],
+        pop2_size=config["pop2_size"],
+        output_size=config["num_place_cells"],
+        alpha1=config["alpha1"],
+        alpha2=config["alpha2"],
+        activation=getattr(nn, config["activation"]),
+        output_from=config["output_from"],
+    )
+
+    lightning_module = CoupledRNNLightning(
+        model=model,
+        learning_rate=config["learning_rate"],
+        weight_decay=config["weight_decay"],
+        step_size=config["step_size"],
+        gamma=config["gamma"],
+    )
+
+    return model, lightning_module
+
+
 def main(config: dict):
     # Set global seed - this handles all randomness sources
     seed_everything(config["seed"], workers=True)
@@ -148,9 +173,14 @@ def main(config: dict):
     if model_type == "vanilla":
         model, lightning_module = create_vanilla_rnn_model(config)
         print("Vanilla PathIntRNN initialized")
-    else:  # hypergraph
+    elif model_type == "hypergraph":
         model, lightning_module = create_hypergraph_rnn_model(config)
         print("HypergraphRNN initialized")
+    elif model_type == "coupled":
+        model, lightning_module = create_coupled_rnn_model(config)
+        print("CoupledRNN initialized")
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
 
     lightning_module.to(config["device"])
     print(f"{model_type.capitalize()} Lightning module initialized")

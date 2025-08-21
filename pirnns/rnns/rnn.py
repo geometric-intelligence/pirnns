@@ -63,12 +63,21 @@ class RNN(nn.Module):
     def forward(
         self, inputs: torch.Tensor, place_cells_0: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # inputs has shape (batch_size, time_steps, input_size)
-        # place_cells_0 has shape (batch_size, output_size)
+        """
+        Forward pass through the RNN.
+        :param inputs: (batch, time, input_size)
+        :param place_cells_0: (batch, output_size) - initial state
+        :return: hidden_states: (batch, time, hidden_size)
+        :return: outputs: (batch, time, output_size)
+        """
+        _, seq_len, _ = inputs.shape
+
+        # Initialize hidden state
         hidden_states = []
         outputs = []
         hidden = self.W_h_init(place_cells_0)
-        for t in range(inputs.shape[1]):
+
+        for t in range(seq_len):
             input_t = inputs[:, t, :]
             hidden = self.rnn_step(input_t, hidden)
             hidden_states.append(hidden)

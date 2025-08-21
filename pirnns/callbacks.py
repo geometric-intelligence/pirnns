@@ -6,15 +6,17 @@ import torch
 from typing import Any
 import matplotlib.pyplot as plt
 import wandb
+from pirnns.rnns.coupled_rnn import CoupledRNN
+from pirnns.rnns.rnn import RNN
 
 
 class LossLoggerCallback(L.Callback):
     def __init__(self, save_dir: str):
         self.save_dir = save_dir
 
-        self.train_losses_epoch = []
-        self.val_losses_epoch = []
-        self.epochs = []
+        self.train_losses_epoch: list[float] = []
+        self.val_losses_epoch: list[float] = []
+        self.epochs: list[int] = []
 
     def on_train_epoch_end(self, trainer, pl_module):
         train_loss = trainer.logged_metrics.get("train_loss_epoch", None)
@@ -91,9 +93,14 @@ class PositionDecodingCallback(L.Callback):
 
         # Get model outputs
         with torch.no_grad():
-            hidden_states, outputs = pl_module.model(  # type: ignore
-                inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-            )
+            if isinstance(pl_module.model, RNN):
+                _, outputs = pl_module.model(
+                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+                )
+            elif isinstance(pl_module.model, CoupledRNN):
+                _, _, outputs = pl_module.model(
+                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+                )
 
             # Convert to probabilities and decode positions
             place_cell_probs = torch.softmax(outputs, dim=-1)
@@ -165,9 +172,14 @@ class TrajectoryVisualizationCallback(L.Callback):
 
         # Get model predictions
         with torch.no_grad():
-            hidden_states, outputs = pl_module.model(  # type: ignore
-                inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-            )
+            if isinstance(pl_module.model, RNN):
+                _, outputs = pl_module.model(
+                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+                )
+            elif isinstance(pl_module.model, CoupledRNN):
+                _, _, outputs = pl_module.model(
+                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
+                )
 
             # Convert to probabilities and decode positions
             place_cell_probs = torch.softmax(outputs, dim=-1)
