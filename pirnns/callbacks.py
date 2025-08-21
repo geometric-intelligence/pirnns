@@ -261,7 +261,7 @@ class TrajectoryVisualizationCallback(L.Callback):
             ax_traj.set_xlabel("X Position")
             ax_traj.set_ylabel("Y Position")
             ax_traj.set_title("Trajectory Comparison")
-            ax_traj.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=4)
+            ax_traj.legend(bbox_to_anchor=(0.5, -0.15), loc="upper center", ncol=4)
             ax_traj.grid(True, alpha=0.3)
             ax_traj.set_aspect("equal")
             ax_traj.set_xlim(xlim)
@@ -314,7 +314,7 @@ class TrajectoryVisualizationCallback(L.Callback):
             ax_start_gt.set_title(
                 f"START: GT Place Cells\n({start_pos[0]:.3f}, {start_pos[1]:.3f})"
             )
-            ax_start_gt.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center')
+            ax_start_gt.legend(bbox_to_anchor=(0.5, -0.15), loc="upper center")
             ax_start_gt.grid(True, alpha=0.3)
             ax_start_gt.set_aspect("equal")
             ax_start_gt.set_xlim(xlim)
@@ -361,7 +361,7 @@ class TrajectoryVisualizationCallback(L.Callback):
             ax_start_pred.set_title(
                 f"START: Predicted Place Cells\n({start_decoded_pos[0]:.3f}, {start_decoded_pos[1]:.3f})"
             )
-            ax_start_pred.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center')
+            ax_start_pred.legend(bbox_to_anchor=(0.5, -0.15), loc="upper center")
             ax_start_pred.grid(True, alpha=0.3)
             ax_start_pred.set_aspect("equal")
             ax_start_pred.set_xlim(xlim)
@@ -400,7 +400,7 @@ class TrajectoryVisualizationCallback(L.Callback):
             ax_end_gt.set_title(
                 f"END: GT Place Cells\n({end_pos[0]:.3f}, {end_pos[1]:.3f})"
             )
-            ax_end_gt.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center')
+            ax_end_gt.legend(bbox_to_anchor=(0.5, -0.15), loc="upper center")
             ax_end_gt.grid(True, alpha=0.3)
             ax_end_gt.set_aspect("equal")
             ax_end_gt.set_xlim(xlim)
@@ -447,7 +447,7 @@ class TrajectoryVisualizationCallback(L.Callback):
             ax_end_pred.set_title(
                 f"END: Predicted Place Cells\n({end_decoded_pos[0]:.3f}, {end_decoded_pos[1]:.3f})"
             )
-            ax_end_pred.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center')
+            ax_end_pred.legend(bbox_to_anchor=(0.5, -0.15), loc="upper center")
             ax_end_pred.grid(True, alpha=0.3)
             ax_end_pred.set_aspect("equal")
             ax_end_pred.set_xlim(xlim)
@@ -467,7 +467,9 @@ class TrajectoryVisualizationCallback(L.Callback):
             figs.append(fig)
 
         # Log to wandb
-        if hasattr(trainer.logger, "experiment"):  # Check if wandb logger
+        if trainer.logger is not None and hasattr(
+            trainer.logger, "experiment"
+        ):  # Check if wandb logger
             for i, fig in enumerate(figs):
                 trainer.logger.experiment.log(
                     {

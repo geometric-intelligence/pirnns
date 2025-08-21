@@ -191,6 +191,3 @@ class RNNLightning(L.LightningModule):
                 "monitor": "val_loss",
             },
         }
-
-
-
