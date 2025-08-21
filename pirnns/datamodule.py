@@ -29,7 +29,7 @@ class PathIntegrationDataModule(L.LightningDataModule):
         DoG: bool,
         # Trajectory generation
         trajectory_type: str = "ornstein_uhlenbeck",
-        place_cell_layout: str = "random",  # Add this parameter
+        place_cell_layout: str = "random",
     ) -> None:
         super().__init__()
         self.num_trajectories = num_trajectories
