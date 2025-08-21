@@ -9,7 +9,7 @@ import wandb
 
 
 class LossLoggerCallback(L.Callback):
-    def __init__(self, save_dir):
+    def __init__(self, save_dir: str):
         self.save_dir = save_dir
 
         self.train_losses_epoch = []
