@@ -21,10 +21,12 @@ from datamodule import PathIntegrationDataModule
 def create_trajectory_animation(
     trained_model,
     untrained_model,
-    eval_data,  # (inputs, targets) tuple
+    eval_data,  # (inputs, positions, place_cells) tuple - UPDATED
     pca_trained,
     pca_untrained,
     device,
+    model_type="vanilla",  # NEW: specify model type
+    population_to_visualize="pop1",  # NEW: for coupled models
     trajectory_idx=0,
     num_frames=100,
     fps=2,
@@ -37,16 +39,20 @@ def create_trajectory_animation(
 
     Parameters:
     -----------
-    trained_model : PathIntRNN
+    trained_model : RNN or CoupledRNN
         Trained model
-    untrained_model : PathIntRNN
+    untrained_model : RNN or CoupledRNN
         Untrained model for comparison
     eval_data : tuple
-        (inputs, targets) tuple where inputs/targets are torch tensors
+        (inputs, positions, place_cells) tuple where all are torch tensors
     pca_trained, pca_untrained : sklearn.PCA
         Fitted PCA objects for dimensionality reduction
     device : str
         Device to run models on
+    model_type : str, default="vanilla"
+        "vanilla" or "coupled"
+    population_to_visualize : str, default="pop1"
+        For coupled models: "pop1", "pop2", or "both"
     trajectory_idx : int, default=0
         Which trajectory to visualize
     num_frames : int, default=100
@@ -70,48 +76,101 @@ def create_trajectory_animation(
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     print(f"Creating trajectory animation for run: {run_id}")
+    print(f"Model type: {model_type}")
+    if model_type == "coupled":
+        print(f"Visualizing population: {population_to_visualize}")
 
     # ===== PREPARE DATA =====
-    inputs, targets = eval_data
+    inputs, positions, place_cells = eval_data  # UPDATED: 3 tensors
 
     # Extract single trajectory data
     single_inputs = inputs[trajectory_idx : trajectory_idx + 1]
-    single_targets = targets[trajectory_idx : trajectory_idx + 1]
+    single_positions = positions[trajectory_idx : trajectory_idx + 1]  # UPDATED
+    single_place_cells = place_cells[trajectory_idx : trajectory_idx + 1]  # UPDATED
 
     # Get model predictions
     with torch.no_grad():
         single_inputs_gpu = single_inputs.to(device)
-        single_targets_gpu = single_targets.to(device)
+        single_place_cells_gpu = single_place_cells.to(device)  # UPDATED
 
-        trained_hidden, trained_output = trained_model(
-            inputs=single_inputs_gpu, pos_0=single_targets_gpu[:, 0, :]
-        )
-        untrained_hidden, untrained_output = untrained_model(
-            inputs=single_inputs_gpu, pos_0=single_targets_gpu[:, 0, :]
-        )
+        if model_type == "vanilla":
+            trained_hidden, trained_output = trained_model(
+                inputs=single_inputs_gpu,
+                place_cells_0=single_place_cells_gpu[:, 0, :],  # UPDATED parameter name
+            )
+            untrained_hidden, untrained_output = untrained_model(
+                inputs=single_inputs_gpu,
+                place_cells_0=single_place_cells_gpu[:, 0, :],  # UPDATED parameter name
+            )
+
+        elif model_type == "coupled":
+            trained_h1, trained_h2, trained_output = trained_model(
+                inputs=single_inputs_gpu, place_cells_0=single_place_cells_gpu[:, 0, :]
+            )
+            untrained_h1, untrained_h2, untrained_output = untrained_model(
+                inputs=single_inputs_gpu, place_cells_0=single_place_cells_gpu[:, 0, :]
+            )
+
+            # Choose which population to visualize
+            if population_to_visualize == "pop1":
+                trained_hidden = trained_h1
+                untrained_hidden = untrained_h1
+            elif population_to_visualize == "pop2":
+                trained_hidden = trained_h2
+                untrained_hidden = untrained_h2
+            elif population_to_visualize == "both":
+                trained_hidden = torch.cat([trained_h1, trained_h2], dim=-1)
+                untrained_hidden = torch.cat([untrained_h1, untrained_h2], dim=-1)
 
     # Convert to numpy
-    trajectory_true = single_targets[0].cpu().numpy()
-    trajectory_predicted = trained_output[0].cpu().numpy()
+    trajectory_true_pos = single_positions[0].cpu().numpy()  # UPDATED: actual positions
+    trajectory_true_place = (
+        single_place_cells[0].cpu().numpy()
+    )  # True place cell activations
+    trajectory_predicted_place = (
+        trained_output[0].cpu().numpy()
+    )  # Predicted place cell activations
     trajectory_hidden_trained = trained_hidden[0].cpu().numpy()
     trajectory_hidden_untrained = untrained_hidden[0].cpu().numpy()
-    velocity_inputs = single_inputs[0].cpu().numpy()  # [heading, speed]
+    velocity_inputs = (
+        single_inputs[0].cpu().numpy()
+    )  # Could be [vx, vy] or [heading, speed]
 
     # Project to PCA space
     trajectory_pca_trained = pca_trained.transform(trajectory_hidden_trained)
     trajectory_pca_untrained = pca_untrained.transform(trajectory_hidden_untrained)
 
-    # Extract heading and speed
-    headings = velocity_inputs[:, 0]  # In radians
-    speeds = velocity_inputs[:, 1]  # Magnitude
+    # Handle velocity representation
+    if velocity_inputs.shape[1] == 2:
+        # Check if this looks like cartesian [vx, vy] or polar [heading, speed]
+        # Heuristic: if values are mostly small and can be negative, assume cartesian
+        if np.any(velocity_inputs < 0) or np.max(np.abs(velocity_inputs)) < 10:
+            # Cartesian velocities [vx, vy] - convert to polar for visualization
+            vx, vy = velocity_inputs[:, 0], velocity_inputs[:, 1]
+            speeds = np.sqrt(vx**2 + vy**2)
+            headings = np.arctan2(vy, vx)
+            velocity_type = "cartesian"
+        else:
+            # Already polar [heading, speed]
+            headings = velocity_inputs[:, 0]  # In radians
+            speeds = velocity_inputs[:, 1]  # Magnitude
+            velocity_type = "polar"
+    else:
+        raise ValueError(
+            f"Expected 2D velocity input, got shape {velocity_inputs.shape}"
+        )
 
-    # Calculate prediction error
-    pred_error = np.linalg.norm(trajectory_predicted - trajectory_true, axis=1)
+    print(f"Velocity representation: {velocity_type}")
+
+    # Calculate place cell prediction error (instead of position error)
+    place_pred_error = np.linalg.norm(
+        trajectory_predicted_place - trajectory_true_place, axis=1
+    )
 
     # Limit frames to available data
-    num_frames = min(num_frames, len(trajectory_true))
+    num_frames = min(num_frames, len(trajectory_true_pos))
 
-    print(f"Trajectory data prepared: {len(trajectory_true)} time steps")
+    print(f"Trajectory data prepared: {len(trajectory_true_pos)} time steps")
     print(f"Animating first {num_frames} steps")
     print(f"Speed range: {speeds.min():.3f} to {speeds.max():.3f}")
 
@@ -126,7 +185,7 @@ def create_trajectory_animation(
     ax_vel = fig.add_subplot(2, 2, 1, projection="polar")
     ax_vel.set_ylim(0, speeds.max() * 1.1)
     ax_vel.set_title(
-        "Input: Velocity (Heading & Speed)", fontsize=14, fontweight="bold"
+        f"Input: Velocity ({velocity_type})", fontsize=14, fontweight="bold"
     )
     ax_vel.set_theta_zero_location("E")
     ax_vel.set_theta_direction(1)
@@ -141,42 +200,45 @@ def create_trajectory_animation(
     )
     ax_pca.set_xlabel(f"PC1 ({pca_trained.explained_variance_ratio_[0]*100:.1f}%)")
     ax_pca.set_ylabel(f"PC2 ({pca_trained.explained_variance_ratio_[1]*100:.1f}%)")
-    ax_pca.set_title("Computation: Hidden State PCA", fontsize=14, fontweight="bold")
+
+    title_suffix = f" ({population_to_visualize})" if model_type == "coupled" else ""
+    ax_pca.set_title(
+        f"Computation: Hidden State PCA{title_suffix}", fontsize=14, fontweight="bold"
+    )
     ax_pca.grid(True, alpha=0.3)
 
-    # Setup arena plot (bottom-left)
+    # Setup arena plot (bottom-left) - shows TRUE POSITIONS
     ax_arena = axes[2]
     ax_arena.set_xlim(
-        trajectory_true[:, 0].min() - 0.5, trajectory_true[:, 0].max() + 0.5
+        trajectory_true_pos[:, 0].min() - 0.5, trajectory_true_pos[:, 0].max() + 0.5
     )
     ax_arena.set_ylim(
-        trajectory_true[:, 1].min() - 0.5, trajectory_true[:, 1].max() + 0.5
+        trajectory_true_pos[:, 1].min() - 0.5, trajectory_true_pos[:, 1].max() + 0.5
     )
     ax_arena.set_xlabel("X Position")
     ax_arena.set_ylabel("Y Position")
-    ax_arena.set_title("Output: Arena View", fontsize=14, fontweight="bold")
+    ax_arena.set_title("Ground Truth: Arena Position", fontsize=14, fontweight="bold")
     ax_arena.grid(True, alpha=0.3)
     ax_arena.set_aspect("equal")
 
     # Plot start/end markers
-    start_pos = trajectory_true[0]
-    end_pos = trajectory_true[-1]
+    start_pos = trajectory_true_pos[0]
+    end_pos = trajectory_true_pos[-1]
     ax_arena.plot(start_pos[0], start_pos[1], "go", markersize=10, label="Start")
     ax_arena.plot(end_pos[0], end_pos[1], "ro", markersize=10, label="End")
 
-    # Setup error plot (bottom-right)
+    # Setup error plot (bottom-right) - shows PLACE CELL ERROR
     ax_error = axes[3]
     ax_error.set_xlim(0, num_frames - 1)
-    ax_error.set_ylim(0, pred_error[:num_frames].max() * 1.1)
+    ax_error.set_ylim(0, place_pred_error[:num_frames].max() * 1.1)
     ax_error.set_xlabel("Time Step")
-    ax_error.set_ylabel("Prediction Error")
-    ax_error.set_title("Error: Prediction vs Truth", fontsize=14, fontweight="bold")
+    ax_error.set_ylabel("Place Cell Prediction Error")
+    ax_error.set_title("Error: Place Cell Prediction", fontsize=14, fontweight="bold")
     ax_error.grid(True, alpha=0.3)
 
     # Initialize line objects
-    (line_true,) = ax_arena.plot([], [], "b-", linewidth=2, alpha=0.7, label="True")
-    (line_pred,) = ax_arena.plot(
-        [], [], "hotpink", linewidth=2, alpha=0.7, label="Predicted"
+    (line_true,) = ax_arena.plot(
+        [], [], "b-", linewidth=2, alpha=0.7, label="True Path"
     )
     (point_current,) = ax_arena.plot([], [], "ko", markersize=8)
 
@@ -188,7 +250,9 @@ def create_trajectory_animation(
     )
     (point_pca_current,) = ax_pca.plot([], [], "ko", markersize=8)
 
-    (line_error,) = ax_error.plot([], [], "red", linewidth=2, alpha=0.8, label="Error")
+    (line_error,) = ax_error.plot(
+        [], [], "red", linewidth=2, alpha=0.8, label="Place Cell Error"
+    )
 
     # Add legends
     ax_arena.legend()
@@ -196,14 +260,13 @@ def create_trajectory_animation(
     ax_error.legend()
 
     def animate(frame):
-        # Arena
+        # Arena - show true position trajectory
         line_true.set_data(
-            trajectory_true[: frame + 1, 0], trajectory_true[: frame + 1, 1]
+            trajectory_true_pos[: frame + 1, 0], trajectory_true_pos[: frame + 1, 1]
         )
-        line_pred.set_data(
-            trajectory_predicted[: frame + 1, 0], trajectory_predicted[: frame + 1, 1]
+        point_current.set_data(
+            [trajectory_true_pos[frame, 0]], [trajectory_true_pos[frame, 1]]
         )
-        point_current.set_data([trajectory_true[frame, 0]], [trajectory_true[frame, 1]])
 
         # PCA
         line_pca_trained.set_data(
@@ -222,7 +285,7 @@ def create_trajectory_animation(
         ax_vel.clear()
         ax_vel.set_ylim(0, speeds.max() * 1.1)
         ax_vel.set_title(
-            "Input: Velocity (Heading & Speed)", fontsize=14, fontweight="bold"
+            f"Input: Velocity ({velocity_type})", fontsize=14, fontweight="bold"
         )
         ax_vel.set_theta_zero_location("E")
         ax_vel.set_theta_direction(1)
@@ -250,16 +313,18 @@ def create_trajectory_animation(
         )
         ax_vel.legend()
 
-        # Error plot
-        error_history = pred_error[: frame + 1]
+        # Error plot - place cell prediction error
+        error_history = place_pred_error[: frame + 1]
         time_steps = np.arange(frame + 1)
         line_error.set_data(time_steps, error_history)
 
-        fig.suptitle(f"PIRNN - Step {frame}/{num_frames-1}", fontsize=16)
+        fig.suptitle(
+            f"PIRNN {model_type.capitalize()} - Step {frame}/{num_frames-1}",
+            fontsize=16,
+        )
 
         return (
             line_true,
-            line_pred,
             point_current,
             line_pca_trained,
             line_pca_untrained,
@@ -274,7 +339,10 @@ def create_trajectory_animation(
     )
 
     # Save video
-    output_filename = os.path.join(output_dir, f"trajectory_analysis_run_{run_id}.mp4")
+    model_suffix = f"_{population_to_visualize}" if model_type == "coupled" else ""
+    output_filename = os.path.join(
+        output_dir, f"trajectory_analysis_{model_type}{model_suffix}_run_{run_id}.mp4"
+    )
     print(f"Saving video as {output_filename}...")
 
     try:
@@ -292,9 +360,9 @@ def create_trajectory_animation(
 
     # Print statistics
     print("\nTrajectory Statistics:")
-    print(f"Duration: {len(trajectory_true)} time steps")
-    print(f"Mean prediction error: {pred_error.mean():.3f}")
-    print(f"Final prediction error: {pred_error[-1]:.3f}")
+    print(f"Duration: {len(trajectory_true_pos)} time steps")
+    print(f"Mean place cell prediction error: {place_pred_error.mean():.3f}")
+    print(f"Final place cell prediction error: {place_pred_error[-1]:.3f}")
     print(f"Speed range: {speeds.min():.3f} to {speeds.max():.3f}")
 
     return output_filename
