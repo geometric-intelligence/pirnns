@@ -572,3 +572,159 @@ class DynamicsAnalyzer:
                 return hidden2_states
             elif self.population_to_visualize == "both":
                 return torch.cat([hidden1_states, hidden2_states], dim=-1)
+
+    def plot_spatial_vs_latent_distance(
+        self,
+        num_pairs: int = 10000,
+        max_spatial_distance: Optional[float] = None,
+        distance_metric: str = "euclidean", # or "cosine"
+        figsize: Tuple[int, int] = (10, 8),
+        alpha: float = 0.1,
+        sample_seed: int = 42,
+    ) -> "DynamicsAnalyzer":
+        """
+        Analyze relationship between spatial distances and latent distances.
+        
+        For trained and untrained models, this plots the relationship between:
+        - X-axis: Real spatial distance ||x(t_i) - x(t_j)||₂ 
+        - Y-axis: Hidden representation distance d(h(t_i), h(t_j))
+        
+        Parameters:
+        -----------
+        num_pairs : int
+            Number of random timepoint pairs to sample
+        max_spatial_distance : float, optional
+            Maximum spatial distance to include (for focusing on local structure)
+        distance_metric : str
+            "euclidean" for L2 norm or "cosine" for cosine distance
+        figsize : tuple
+            Figure size
+        alpha : float
+            Point transparency for scatter plot
+        sample_seed : int
+            Random seed for reproducible sampling
+            
+        Returns:
+        --------
+        self for method chaining
+        """
+        assert self.trained_hidden_states is not None, "Must compute hidden states first"
+        assert self.untrained_hidden_states is not None, "Must compute hidden states first"
+        assert self.positions is not None, "Must compute hidden states first"
+        
+        np.random.seed(sample_seed)
+        
+        # Flatten data for easy pair sampling
+        # Shape: (total_timepoints, feature_dim)
+        positions_flat = self.positions.reshape(-1, 2).cpu().numpy()  # (B*T, 2)
+        trained_hidden_flat = self.trained_hidden_states.reshape(-1, self.trained_hidden_states.shape[-1]).cpu().numpy()  # (B*T, H)
+        untrained_hidden_flat = self.untrained_hidden_states.reshape(-1, self.untrained_hidden_states.shape[-1]).cpu().numpy()  # (B*T, H)
+        
+        total_timepoints = positions_flat.shape[0]
+        
+        # Sample random pairs of timepoints
+        idx_pairs = np.random.choice(total_timepoints, size=(num_pairs, 2), replace=True)
+        
+        # Function to compute distance based on metric
+        def compute_latent_distance(vec1, vec2, metric):
+            if metric == "euclidean":
+                return np.linalg.norm(vec1 - vec2)
+            elif metric == "cosine":
+                # Cosine distance = 1 - cosine_similarity
+                dot_product = np.dot(vec1, vec2)
+                norm1 = np.linalg.norm(vec1)
+                norm2 = np.linalg.norm(vec2)
+                if norm1 == 0 or norm2 == 0:
+                    return 1.0  # Maximum cosine distance
+                cosine_sim = dot_product / (norm1 * norm2)
+                return 1 - cosine_sim
+            else:
+                raise ValueError(f"Unknown distance metric: {metric}")
+        
+        # Compute distances
+        spatial_distances = []
+        trained_latent_distances = []
+        untrained_latent_distances = []
+        
+        for i, j in idx_pairs:
+            # Spatial distance in 2D
+            spatial_dist = np.linalg.norm(positions_flat[i] - positions_flat[j])
+            
+            # Latent distances in high-D
+            trained_latent_dist = compute_latent_distance(
+                trained_hidden_flat[i], trained_hidden_flat[j], distance_metric
+            )
+            untrained_latent_dist = compute_latent_distance(
+                untrained_hidden_flat[i], untrained_hidden_flat[j], distance_metric
+            )
+            
+            spatial_distances.append(spatial_dist)
+            trained_latent_distances.append(trained_latent_dist)
+            untrained_latent_distances.append(untrained_latent_dist)
+        
+        spatial_distances = np.array(spatial_distances)
+        trained_latent_distances = np.array(trained_latent_distances)
+        untrained_latent_distances = np.array(untrained_latent_distances)
+        
+        # Filter by max spatial distance if specified
+        if max_spatial_distance is not None:
+            mask = spatial_distances <= max_spatial_distance
+            spatial_distances = spatial_distances[mask]
+            trained_latent_distances = trained_latent_distances[mask]
+            untrained_latent_distances = untrained_latent_distances[mask]
+        
+        # Create scatter plot
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+        
+        # Metric-specific labels
+        distance_label = {
+            "euclidean": "||h(t_i) - h(t_j)||₂",
+            "cosine": "1 - cos(h(t_i), h(t_j))"
+        }[distance_metric]
+        
+        # Trained model
+        ax1.scatter(spatial_distances, trained_latent_distances, alpha=alpha, s=1, c='blue')
+        ax1.set_xlabel('Spatial Distance ||x(t_i) - x(t_j)||₂')
+        ax1.set_ylabel(f'Latent Distance {distance_label}')
+        ax1.set_title('Trained Model')
+        ax1.grid(True, alpha=0.3)
+        
+        # Untrained model
+        ax2.scatter(spatial_distances, untrained_latent_distances, alpha=alpha, s=1, c='red')
+        ax2.set_xlabel('Spatial Distance ||x(t_i) - x(t_j)||₂')
+        ax2.set_ylabel(f'Latent Distance {distance_label}')
+        ax2.set_title('Untrained Model')
+        ax2.grid(True, alpha=0.3)
+        
+        # Compute correlations
+        trained_corr = np.corrcoef(spatial_distances, trained_latent_distances)[0, 1]
+        untrained_corr = np.corrcoef(spatial_distances, untrained_latent_distances)[0, 1]
+        
+        # Add correlation text
+        ax1.text(0.05, 0.95, f'Correlation: {trained_corr:.3f}', 
+                transform=ax1.transAxes, fontsize=12, verticalalignment='top',
+                bbox=dict(boxstyle="round", facecolor='lightblue', alpha=0.7))
+        ax2.text(0.05, 0.95, f'Correlation: {untrained_corr:.3f}', 
+                transform=ax2.transAxes, fontsize=12, verticalalignment='top',
+                bbox=dict(boxstyle="round", facecolor='lightcoral', alpha=0.7))
+        
+        population_name = f"{self.model_type.capitalize()} {self.population_to_visualize}"
+        metric_name = distance_metric.capitalize()
+        plt.suptitle(f'Spatial vs Latent Distance Analysis ({metric_name}) - {population_name}', 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.show()
+        
+        # Print statistics
+        print(f"\n=== Spatial vs Latent Distance Analysis ({metric_name}) ===")
+        print(f"Number of timepoint pairs analyzed: {len(spatial_distances)}")
+        print(f"Spatial distance range: [{spatial_distances.min():.3f}, {spatial_distances.max():.3f}]")
+        print(f"Trained latent distance range: [{trained_latent_distances.min():.3f}, {trained_latent_distances.max():.3f}]")
+        print(f"Untrained latent distance range: [{untrained_latent_distances.min():.3f}, {untrained_latent_distances.max():.3f}]")
+        print(f"Trained correlation (spatial vs latent): {trained_corr:.3f}")
+        print(f"Untrained correlation (spatial vs latent): {untrained_corr:.3f}")
+        
+        if distance_metric == "cosine":
+            print("\nNote: Cosine distance measures angular similarity, independent of vector magnitude")
+        
+        return self
