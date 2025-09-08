@@ -1,7 +1,7 @@
 # === Project configuration ===
 project_name: "path-integration-rnn"
 model_type: "multitimescale"
-device: 'cuda'
+device: 'cuda:3'
 seed: 0 # Global seed
 
 # === Data (trajectory) configuration ===
@@ -37,16 +37,16 @@ hidden_size: 4096
 activation: "ReLU" #"Tanh"
 
 # Timescales configuration
-# timescales_config:
-#   type: "continuous"
-#   distribution: "powerlaw"
-#   exponent: 2
-#   min_timescale: 0.0434 # corresponds to alpha = 0.9
-#   max_timescale: 10 
-
 timescales_config:
-  type: "discrete"
-  values: [0, 0.448] # corresponds to [1, 0.2] alpha
+  type: "continuous"
+  distribution: "powerlaw"
+  exponent: 2
+  min_timescale: 0.0434 # corresponds to alpha = 0.9
+  max_timescale: 2
+
+# timescales_config:
+#   type: "discrete"
+#   values: [0.001] #, 0.448] # corresponds to [1, 0.2] alpha
 
 # timescales_config:
 #   type: "continuous"

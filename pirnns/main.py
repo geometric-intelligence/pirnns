@@ -78,7 +78,8 @@ def create_multitimescale_rnn_model(config: dict):
         input_size=config["input_size"],
         hidden_size=config["hidden_size"],
         output_size=config["num_place_cells"],
-        alpha_config=config["alpha_config"],
+        dt=config["dt"],
+        timescales_config=config["timescales_config"],
         activation=getattr(nn, config["activation"]),
     )
 
@@ -155,13 +156,12 @@ def main(config: dict):
     elif model_type == "multitimescale":
         model, lightning_module = create_multitimescale_rnn_model(config)
         print("MultiTimescaleRNN initialized")
-        # Print alpha statistics
-        alpha_stats = model.get_alpha_stats()
-        print(f"Alpha statistics: {alpha_stats}")
+        # Print timescale statistics
+        timescale_stats = model.get_timescale_stats()
+        print(f"Timescale statistics: {timescale_stats}")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
-    lightning_module.to(config["device"])
     print(f"{model_type.capitalize()} Lightning module initialized")
 
     run_dir = os.path.join(log_dir, "checkpoints", f"{model_type}_{run_id}")
@@ -205,17 +205,26 @@ def main(config: dict):
     ]
 
     if model_type == "multitimescale":
-        timescale_viz_callback = TimescaleVisualizationCallback(
-            log_at_epoch=config["log_at_epoch"],
-        )
+        timescale_viz_callback = TimescaleVisualizationCallback()
         callbacks.append(timescale_viz_callback)
+
+    device_str = config["device"]
+    if device_str.startswith("cuda:"):
+        device_id = int(device_str.split(":")[1])
+        devices = [device_id]
+        accelerator = "gpu"
+    else:
+        devices = "auto"
+        accelerator = "auto"
 
     trainer = Trainer(
         logger=wandb_logger,
         max_epochs=config["max_epochs"],
         default_root_dir=log_dir,
         callbacks=callbacks,
-        strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
+        devices=devices,
+        accelerator=accelerator,
+        strategy="auto",
     )
 
     print("Trainer initialized")

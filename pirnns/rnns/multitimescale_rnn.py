@@ -18,7 +18,7 @@ class MultiTimescaleRNNStep(nn.Module):
     ) -> None:
         """
         Initialize the Multi-timescale RNN step.
-        
+
         :param input_size: The size of the velocity input (= dimension of space).
         :param hidden_size: The size of the hidden state (number of neurons).
         :param dt: The time step.
@@ -32,9 +32,9 @@ class MultiTimescaleRNNStep(nn.Module):
         self.activation = activation()
 
         # Register timescales and alphas as buffers (not trainable parameters)
-        self.register_buffer('timescales', timescales)
+        self.register_buffer("timescales", timescales)
         alphas = 1 - torch.exp(-dt / timescales)
-        self.register_buffer('alphas', alphas)
+        self.register_buffer("alphas", alphas)
 
         self.W_in = nn.Linear(input_size, hidden_size)
         self.W_rec = nn.Linear(hidden_size, hidden_size)
@@ -46,16 +46,16 @@ class MultiTimescaleRNNStep(nn.Module):
     ) -> torch.Tensor:
         """
         Forward pass with per-unit update rates.
-        
+
         :param input: (batch, input_size)
         :param hidden: (batch, hidden_size)
         :return: new_hidden: (batch, hidden_size)
         """
         pre_activation = self.W_in(input) + self.W_rec(hidden)
         activated = self.activation(pre_activation)
-        
+
         new_hidden = (1 - self.alphas) * hidden + self.alphas * activated
-        
+
         return new_hidden
 
 
@@ -70,17 +70,17 @@ class MultiTimescaleRNN(nn.Module):
         hidden_size: int,
         output_size: int,
         dt: float,
-        timescale_config: dict,
+        timescales_config: dict,
         activation: type[nn.Module] = nn.Tanh,
     ) -> None:
         """
         Initialize the Multi-timescale RNN.
-        
+
         :param input_size: The size of the velocity input (= dimension of space).
         :param hidden_size: The size of the hidden state (number of neurons).
         :param output_size: The size of the output vector (number of place cells).
         :param dt: The time step size.
-        :param timescale_config: Dictionary specifying how to set the timescales.
+        :param timescales_config: Dictionary specifying how to set the timescales.
         :param activation: The activation function.
         """
         super().__init__()
@@ -90,9 +90,11 @@ class MultiTimescaleRNN(nn.Module):
         self.dt = dt
 
         # Generate timescales based on configuration
-        timescales = self._generate_timescales(hidden_size, timescale_config)
+        timescales = self._generate_timescales(hidden_size, timescales_config)
 
-        self.rnn_step = MultiTimescaleRNNStep(input_size, hidden_size, dt, timescales, activation)
+        self.rnn_step = MultiTimescaleRNNStep(
+            input_size, hidden_size, dt, timescales, activation
+        )
         self.W_out = nn.Linear(hidden_size, output_size, bias=False)
 
         # Layer to initialize hidden state
@@ -101,19 +103,17 @@ class MultiTimescaleRNN(nn.Module):
         self._initialize_weights()
 
     def _generate_timescales(
-        self, 
-        hidden_size: int, 
-        timescales_config: dict
-        ) -> torch.Tensor:
+        self, hidden_size: int, timescales_config: dict
+    ) -> torch.Tensor:
         """
         Generate timescales based on configuration.
-        
+
         :param hidden_size: Number of hidden units
-        :param timescale_config: Configuration dictionary
+        :param timescales_config: Configuration dictionary
         :return: Tensor of timescales of shape (hidden_size,)
         """
         timescale_type = timescales_config["type"]
-        
+
         if timescale_type == "discrete":
             discrete_values = timescales_config["values"]
             discrete_values = torch.tensor(discrete_values, dtype=torch.float32)
@@ -124,49 +124,54 @@ class MultiTimescaleRNN(nn.Module):
                 # Each timescale picked uniformly from K discrete values
                 indices = torch.randint(0, len(discrete_values), (hidden_size,))
                 timescales = discrete_values[indices]
-            
+
         elif timescale_type == "continuous":
             distribution = timescales_config["distribution"]
-                
+
             if distribution == "uniform":
-                min_timescale = timescales_config["min_timescale"]
-                max_timescale = timescales_config["max_timescale"]
-                timescales = torch.uniform(min_timescale, max_timescale, size=(hidden_size,))
-                
+                min_timescale = float(timescales_config["min_timescale"])
+                max_timescale = float(timescales_config["max_timescale"])
+                timescales = torch.uniform(
+                    min_timescale, max_timescale, size=(hidden_size,)
+                )
+
             elif distribution == "powerlaw":
                 # Power-law distribution: P(x) ∝ x^(-α)
                 # We use inverse transform sampling since PyTorch doesn't have a built-in power-law
-                exponent = timescales_config["exponent"]
-                min_timescale = timescales_config["min_timescale"]
-                max_timescale = timescales_config["max_timescale"]
-                
+                exponent = float(timescales_config["exponent"])
+                min_timescale = float(timescales_config["min_timescale"])
+                max_timescale = float(timescales_config["max_timescale"])
+
                 # Generate uniform random samples
                 u = torch.rand(hidden_size)
-                
+
                 # Inverse transform sampling for bounded power-law
                 # F^(-1)(u) = x_min * [(x_max/x_min)^(1-α) * u + (1-u)]^(1/(1-α))
                 if abs(exponent - 1.0) < 1e-6:
                     # Special case when α ≈ 1 (log-uniform distribution)
-                    timescales = min_timescale * torch.pow(max_timescale / min_timescale, u)
+                    timescales = min_timescale * torch.pow(
+                        torch.tensor(max_timescale / min_timescale), u
+                    )
                 else:
                     # General case
                     ratio = max_timescale / min_timescale
-                    power_term = torch.pow(ratio, 1 - exponent) * u + (1 - u)
-                    timescales = min_timescale * torch.pow(power_term, 1 / (1 - exponent))
-                
+                    exponent_term = 1.0 - exponent
+                    power_term = (ratio ** exponent_term) * u + (1 - u)
+                    timescales = min_timescale * torch.pow(power_term, 1.0 / exponent_term)
+
             else:
                 raise ValueError(f"Unknown continuous distribution: {distribution}")
 
         return timescales
 
     def forward(
-        self, 
-        inputs: torch.Tensor, 
+        self,
+        inputs: torch.Tensor,
         place_cells_0: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through the multi-timescale RNN.
-        
+
         :param inputs: (batch, time, input_size)
         :param place_cells_0: (batch, output_size) - used to initialize the hidden state
 
@@ -185,7 +190,7 @@ class MultiTimescaleRNN(nn.Module):
             hidden = self.rnn_step(input_t, hidden)
             hidden_states.append(hidden)
             outputs.append(self.W_out(hidden))
-            
+
         return torch.stack(hidden_states, dim=1), torch.stack(outputs, dim=1)
 
     def _initialize_weights(self) -> None:
@@ -210,7 +215,7 @@ class MultiTimescaleRNN(nn.Module):
         alphas = self.rnn_step.alphas
         return {
             "timescale_min": timescales.min().item(),
-            "timescale_max": timescales.max().item(), 
+            "timescale_max": timescales.max().item(),
             "timescale_mean": timescales.mean().item(),
             "timescale_std": timescales.std().item(),
             "alpha_min": alphas.min().item(),
@@ -231,7 +236,7 @@ class MultiTimescaleRNNLightning(L.LightningModule):
     ) -> None:
         """
         Initialize the Multi-timescale RNN Lightning module.
-        
+
         :param model: The MultiTimescaleRNN model.
         :param learning_rate: The learning rate.
         :param weight_decay: The weight decay for the recurrent weights.
@@ -321,7 +326,4 @@ class MultiTimescaleRNNLightning(L.LightningModule):
     def on_train_start(self):
         """Log timescale statistics at the start of training."""
         timescale_stats = self.model.get_timescale_stats()
-        for key, value in timescale_stats.items():
-            self.log(f"timescale_{key}", value, on_step=False, on_epoch=False)
-        
         print(f"Timescale statistics: {timescale_stats}")

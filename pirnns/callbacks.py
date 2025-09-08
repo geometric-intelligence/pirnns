@@ -516,229 +516,321 @@ class TimescaleVisualizationCallback(L.Callback):
         self.logged = False
 
     @rank_zero_only
-    def on_train_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+    def on_train_epoch_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
         """Log timescale visualization at the specified epoch."""
-        
+
         # Only log once at the specified epoch
         if trainer.current_epoch != self.log_at_epoch or self.logged:
             return
-            
+
         # Only works with MultiTimescaleRNN
         if not isinstance(pl_module.model, MultiTimescaleRNN):
             return
-            
+
         model = pl_module.model
         timescales = model.rnn_step.timescales.cpu().numpy()
         alphas = model.rnn_step.alphas.cpu().numpy()
         dt = model.dt
-        
+
         # Get the original configuration if available
-        timescale_config = getattr(model, '_timescale_config', None)
-        
-        # Create figure with subplots
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        
-        # === TIMESCALE HISTOGRAM ===
-        ax1 = axes[0, 0]
-        n_bins = min(50, len(np.unique(timescales)))
-        counts, bins, patches = ax1.hist(timescales, bins=n_bins, alpha=0.7, color='skyblue', edgecolor='black')
-        ax1.set_xlabel('Timescale (time units)')
-        ax1.set_ylabel('Number of Units')
-        ax1.set_title('Timescale Distribution (Actual Values)')
-        ax1.grid(True, alpha=0.3)
-        
-        # Add statistics text
-        stats_text = f'Min: {timescales.min():.3f}\nMax: {timescales.max():.3f}\nMean: {timescales.mean():.3f}\nStd: {timescales.std():.3f}'
-        ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-        
-        # === ALPHA HISTOGRAM ===
-        ax2 = axes[0, 1]
-        n_bins_alpha = min(50, len(np.unique(alphas)))
-        ax2.hist(alphas, bins=n_bins_alpha, alpha=0.7, color='lightcoral', edgecolor='black')
-        ax2.set_xlabel('Alpha (update rate)')
-        ax2.set_ylabel('Number of Units')
-        ax2.set_title('Alpha Distribution (Derived Values)')
-        ax2.grid(True, alpha=0.3)
-        
-        # Add statistics text
-        alpha_stats_text = f'Min: {alphas.min():.3f}\nMax: {alphas.max():.3f}\nMean: {alphas.mean():.3f}\nStd: {alphas.std():.3f}'
-        ax2.text(0.02, 0.98, alpha_stats_text, transform=ax2.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-        
-        # === THEORETICAL DISTRIBUTION (if config available) ===
-        ax3 = axes[1, 0]
-        
-        if timescale_config is not None:
-            self._plot_theoretical_distribution(ax3, timescale_config, timescales)
-        else:
-            # If no config, just show the empirical distribution differently
+        timescale_config = getattr(model, "_timescale_config", None)
+
+        # Determine if discrete or continuous
+        unique_timescales = np.unique(timescales)
+        is_discrete = len(unique_timescales) <= 20
+
+        if is_discrete:
+            # Create a 2x1 layout for discrete case
+            fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+            
+            # === DISCRETE TIMESCALE VALUES ===
+            ax1 = axes[0]
             unique_vals, counts = np.unique(timescales, return_counts=True)
-            if len(unique_vals) <= 20:  # Discrete case
-                ax3.bar(unique_vals, counts, alpha=0.7, color='lightgreen', edgecolor='black')
-                ax3.set_xlabel('Timescale Values')
-                ax3.set_ylabel('Count')
-                ax3.set_title('Discrete Timescale Values')
-            else:  # Continuous case - show KDE
+            
+            # Use stem plot instead of bars for discrete values
+            markerline, stemlines, baseline = ax1.stem(unique_vals, counts, basefmt=' ')
+            markerline.set_markersize(12)
+            markerline.set_markerfacecolor('skyblue')
+            markerline.set_markeredgecolor('navy')
+            stemlines.set_linewidth(3)
+            stemlines.set_color('navy')
+            
+            # Add value labels on top of each stem
+            for val, count in zip(unique_vals, counts):
+                ax1.annotate(f'{count}', (val, count), 
+                           textcoords="offset points", xytext=(0,10), ha='center',
+                           fontsize=12, fontweight='bold')
+                ax1.annotate(f'τ={val:.3f}', (val, 0), 
+                           textcoords="offset points", xytext=(0,-25), ha='center',
+                           fontsize=10, rotation=45)
+            
+            ax1.set_xlabel('Timescale Values')
+            ax1.set_ylabel('Number of Units')
+            ax1.set_title(f'Discrete Timescale Distribution\n{len(unique_vals)} unique values')
+            ax1.grid(True, alpha=0.3)
+            ax1.set_ylim(0, max(counts) * 1.2)
+            
+            # === CORRESPONDING ALPHA VALUES ===
+            ax2 = axes[1]
+            unique_alphas = 1 - np.exp(-dt / unique_vals)
+            
+            markerline2, stemlines2, baseline2 = ax2.stem(unique_alphas, counts, basefmt=' ')
+            markerline2.set_markersize(12)
+            markerline2.set_markerfacecolor('lightcoral')
+            markerline2.set_markeredgecolor('darkred')
+            stemlines2.set_linewidth(3)
+            stemlines2.set_color('darkred')
+            
+            # Add value labels
+            for alpha, count in zip(unique_alphas, counts):
+                ax2.annotate(f'{count}', (alpha, count), 
+                           textcoords="offset points", xytext=(0,10), ha='center',
+                           fontsize=12, fontweight='bold')
+                ax2.annotate(f'α={alpha:.3f}', (alpha, 0), 
+                           textcoords="offset points", xytext=(0,-25), ha='center',
+                           fontsize=10, rotation=45)
+            
+            ax2.set_xlabel('Alpha Values')
+            ax2.set_ylabel('Number of Units')
+            ax2.set_title(f'Corresponding Alpha Distribution\n(dt={dt})')
+            ax2.grid(True, alpha=0.3)
+            ax2.set_ylim(0, max(counts) * 1.2)
+            
+        else:
+            # Create a 2x2 layout for continuous case
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            
+            # === TIMESCALE HISTOGRAM ===
+            ax1 = axes[0, 0]
+            n_bins = min(50, len(unique_timescales))
+            counts, bins, patches = ax1.hist(
+                timescales, bins=n_bins, alpha=0.7, color="skyblue", edgecolor="black"
+            )
+            ax1.set_xlabel("Timescale (time units)")
+            ax1.set_ylabel("Number of Units")
+            ax1.set_title("Timescale Distribution (Actual Values)")
+            ax1.grid(True, alpha=0.3)
+
+            # Add statistics text
+            stats_text = f"Min: {timescales.min():.3f}\nMax: {timescales.max():.3f}\nMean: {timescales.mean():.3f}\nStd: {timescales.std():.3f}"
+            ax1.text(
+                0.02, 0.98, stats_text, transform=ax1.transAxes, verticalalignment="top",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+            )
+
+            # === ALPHA HISTOGRAM ===
+            ax2 = axes[0, 1]
+            n_bins_alpha = min(50, len(np.unique(alphas)))
+            ax2.hist(
+                alphas, bins=n_bins_alpha, alpha=0.7, color="lightcoral", edgecolor="black"
+            )
+            ax2.set_xlabel("Alpha (update rate)")
+            ax2.set_ylabel("Number of Units")
+            ax2.set_title("Alpha Distribution (Derived Values)")
+            ax2.grid(True, alpha=0.3)
+
+            # Add statistics text
+            alpha_stats_text = f"Min: {alphas.min():.3f}\nMax: {alphas.max():.3f}\nMean: {alphas.mean():.3f}\nStd: {alphas.std():.3f}"
+            ax2.text(
+                0.02, 0.98, alpha_stats_text, transform=ax2.transAxes, verticalalignment="top",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+            )
+
+            # === THEORETICAL DISTRIBUTION ===
+            ax3 = axes[1, 0]
+            if timescale_config is not None:
+                self._plot_theoretical_distribution(ax3, timescale_config, timescales)
+            else:
+                # Show KDE if available
                 try:
                     from scipy.stats import gaussian_kde
                     kde = gaussian_kde(timescales)
                     x_range = np.linspace(timescales.min(), timescales.max(), 200)
-                    ax3.plot(x_range, kde(x_range), 'g-', linewidth=2, label='KDE')
-                    ax3.fill_between(x_range, kde(x_range), alpha=0.3, color='lightgreen')
-                    ax3.set_xlabel('Timescale')
-                    ax3.set_ylabel('Density')
-                    ax3.set_title('Empirical Density (KDE)')
+                    ax3.plot(x_range, kde(x_range), "g-", linewidth=2, label="KDE")
+                    ax3.fill_between(x_range, kde(x_range), alpha=0.3, color="lightgreen")
+                    ax3.set_xlabel("Timescale")
+                    ax3.set_ylabel("Density")
+                    ax3.set_title("Empirical Density (KDE)")
                     ax3.legend()
                 except ImportError:
-                    ax3.text(0.5, 0.5, 'scipy not available\nfor KDE', 
-                           transform=ax3.transAxes, ha='center', va='center')
-                    ax3.set_title('Density Plot Unavailable')
-        
-        ax3.grid(True, alpha=0.3)
-        
-        # === TIMESCALE vs ALPHA RELATIONSHIP ===
-        ax4 = axes[1, 1]
-        
-        # Sort by timescale for cleaner visualization
-        sort_idx = np.argsort(timescales)
-        sorted_timescales = timescales[sort_idx]
-        sorted_alphas = alphas[sort_idx]
-        
-        # Scatter plot
-        ax4.scatter(sorted_timescales, sorted_alphas, alpha=0.6, s=20, c='purple')
-        
-        # Theoretical curve α = 1 - exp(-dt/τ)
-        tau_theoretical = np.linspace(timescales.min(), timescales.max(), 200)
-        alpha_theoretical = 1 - np.exp(-dt / tau_theoretical)
-        ax4.plot(tau_theoretical, alpha_theoretical, 'r-', linewidth=2, 
-                label=f'α = 1 - exp(-{dt}/τ)', alpha=0.8)
-        
-        ax4.set_xlabel('Timescale τ')
-        ax4.set_ylabel('Alpha α')
-        ax4.set_title('Timescale ↔ Alpha Relationship')
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
-        
+                    ax3.text(0.5, 0.5, "scipy not available\nfor KDE", 
+                           transform=ax3.transAxes, ha="center", va="center")
+                    ax3.set_title("Density Plot Unavailable")
+            ax3.grid(True, alpha=0.3)
+            
+            # === TIMESCALE RANK PLOT (much more useful!) ===
+            ax4 = axes[1, 1]
+            
+            # Sort timescales and show rank order
+            sorted_idx = np.argsort(timescales)
+            sorted_timescales = timescales[sorted_idx]
+            ranks = np.arange(len(sorted_timescales))
+            
+            # Plot timescales by rank
+            ax4.plot(ranks, sorted_timescales, 'o-', markersize=2, linewidth=1, alpha=0.7)
+            ax4.set_xlabel('Unit Rank (sorted by timescale)')
+            ax4.set_ylabel('Timescale')
+            ax4.set_title('Timescale Spectrum\n(Units sorted by timescale)')
+            ax4.grid(True, alpha=0.3)
+            
+            # Add percentile lines
+            percentiles = [10, 25, 50, 75, 90]
+            colors = ['red', 'orange', 'green', 'orange', 'red']
+            for p, color in zip(percentiles, colors):
+                val = np.percentile(timescales, p)
+                ax4.axhline(val, color=color, linestyle='--', alpha=0.7, 
+                           label=f'{p}th percentile: {val:.3f}')
+            ax4.legend(fontsize=8)
+
         # Overall title
         config_str = f"Config: {timescale_config}" if timescale_config else "No config available"
-        fig.suptitle(f'Timescale Analysis - {len(timescales)} units\n{config_str}', fontsize=14)
-        
+        distribution_type = "Discrete" if is_discrete else "Continuous"
+        fig.suptitle(
+            f"Timescale Analysis ({distribution_type}) - {len(timescales)} units\n{config_str}", 
+            fontsize=14
+        )
+
         plt.tight_layout()
-        
+
         # Log to wandb
-        if trainer.logger is not None and hasattr(trainer.logger, 'experiment'):
+        if trainer.logger is not None and hasattr(trainer.logger, "experiment"):
             trainer.logger.experiment.log({
                 "timescale_analysis": wandb.Image(fig),
             })
-            
+
         plt.close(fig)
         self.logged = True
-    
-    def _plot_theoretical_distribution(self, ax, config: dict, actual_timescales: np.ndarray):
+
+    def _plot_theoretical_distribution(
+        self, ax, config: dict, actual_timescales: np.ndarray
+    ):
         """Plot the theoretical distribution based on configuration."""
-        
+
         timescale_type = config.get("type", "unknown")
-        
+
         if timescale_type == "uniform":
             # Single value - show as a vertical line
             value = config.get("value", 1.0)
-            ax.axvline(value, color='red', linewidth=3, label=f'Uniform τ = {value}')
+            ax.axvline(value, color="red", linewidth=3, label=f"Uniform τ = {value}")
             ax.set_xlim(value * 0.8, value * 1.2)
-            ax.set_xlabel('Timescale')
-            ax.set_ylabel('Density')
-            ax.set_title('Theoretical: Uniform (Single Value)')
+            ax.set_xlabel("Timescale")
+            ax.set_ylabel("Density")
+            ax.set_title("Theoretical: Uniform (Single Value)")
             ax.legend()
-            
+
         elif timescale_type == "discrete":
             # Bar plot of discrete values
             values = config.get("values", [])
             counts = [np.sum(actual_timescales == v) for v in values]
-            ax.bar(values, counts, alpha=0.7, color='orange', edgecolor='black')
-            ax.set_xlabel('Timescale Values')
-            ax.set_ylabel('Count')
-            ax.set_title('Theoretical: Discrete Values')
-            
+            ax.bar(values, counts, alpha=0.7, color="orange", edgecolor="black")
+            ax.set_xlabel("Timescale Values")
+            ax.set_ylabel("Count")
+            ax.set_title("Theoretical: Discrete Values")
+
         elif timescale_type == "continuous":
             distribution = config.get("distribution", "unknown")
-            
+
             # Create x range for plotting
             min_tau = actual_timescales.min()
             max_tau = actual_timescales.max()
             x = np.linspace(min_tau, max_tau, 200)
-            
+
             if distribution == "lognormal":
                 mu = config.get("mu", 0)
                 sigma = config.get("sigma", 1)
-                
+
                 # PDF of lognormal: (1/(x*σ*√(2π))) * exp(-(ln(x)-μ)²/(2σ²))
-                pdf = (1 / (x * sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((np.log(x) - mu) / sigma) ** 2)
-                
+                pdf = (1 / (x * sigma * np.sqrt(2 * np.pi))) * np.exp(
+                    -0.5 * ((np.log(x) - mu) / sigma) ** 2
+                )
+
                 # Handle any potential issues with very small values
                 pdf = np.where(x > 0, pdf, 0)
-                
-                ax.plot(x, pdf, 'g-', linewidth=2, label=f'LogNormal(μ={mu}, σ={sigma})')
-                ax.fill_between(x, pdf, alpha=0.3, color='green')
-                ax.set_title('Theoretical: Log-Normal Distribution')
-                
+
+                ax.plot(
+                    x, pdf, "g-", linewidth=2, label=f"LogNormal(μ={mu}, σ={sigma})"
+                )
+                ax.fill_between(x, pdf, alpha=0.3, color="green")
+                ax.set_title("Theoretical: Log-Normal Distribution")
+
             elif distribution == "uniform":
                 min_val = config.get("min_timescale", min_tau)
                 max_val = config.get("max_timescale", max_tau)
-                
+
                 # Uniform PDF
-                pdf = np.where((x >= min_val) & (x <= max_val), 1 / (max_val - min_val), 0)
-                
-                ax.plot(x, pdf, 'b-', linewidth=2, label=f'Uniform({min_val:.2f}, {max_val:.2f})')
-                ax.fill_between(x, pdf, alpha=0.3, color='blue')
-                ax.set_title('Theoretical: Uniform Distribution')
-                
+                pdf = np.where(
+                    (x >= min_val) & (x <= max_val), 1 / (max_val - min_val), 0
+                )
+
+                ax.plot(
+                    x,
+                    pdf,
+                    "b-",
+                    linewidth=2,
+                    label=f"Uniform({min_val:.2f}, {max_val:.2f})",
+                )
+                ax.fill_between(x, pdf, alpha=0.3, color="blue")
+                ax.set_title("Theoretical: Uniform Distribution")
+
             elif distribution == "powerlaw":
                 alpha_param = config.get("alpha", 2.0)
                 min_val = config.get("min_timescale", min_tau)
                 max_val = config.get("max_timescale", max_tau)
-                
+
                 if abs(alpha_param - 1.0) < 1e-6:
                     # Log-uniform case
-                    pdf = np.where((x >= min_val) & (x <= max_val), 1 / (x * np.log(max_val / min_val)), 0)
-                    label_str = f'PowerLaw(α≈1, log-uniform)'
+                    pdf = np.where(
+                        (x >= min_val) & (x <= max_val),
+                        1 / (x * np.log(max_val / min_val)),
+                        0,
+                    )
+                    label_str = "PowerLaw(α≈1, log-uniform)"
                 else:
                     # General power law
-                    C = (alpha_param - 1) / (max_val**(1 - alpha_param) - min_val**(1 - alpha_param))
-                    pdf = np.where((x >= min_val) & (x <= max_val), C * x**(-alpha_param), 0)
-                    label_str = f'PowerLaw(α={alpha_param:.1f})'
-                
-                ax.plot(x, pdf, 'purple', linewidth=2, label=label_str)
-                ax.fill_between(x, pdf, alpha=0.3, color='purple')
-                ax.set_title('Theoretical: Power-Law Distribution')
-                
+                    C = (alpha_param - 1) / (
+                        max_val ** (1 - alpha_param) - min_val ** (1 - alpha_param)
+                    )
+                    pdf = np.where(
+                        (x >= min_val) & (x <= max_val), C * x ** (-alpha_param), 0
+                    )
+                    label_str = f"PowerLaw(α={alpha_param:.1f})"
+
+                ax.plot(x, pdf, "purple", linewidth=2, label=label_str)
+                ax.fill_between(x, pdf, alpha=0.3, color="purple")
+                ax.set_title("Theoretical: Power-Law Distribution")
+
             elif distribution == "beta":
                 # Beta distribution scaled to range
                 alpha_param = config.get("alpha_param", 2.0)
                 beta_param = config.get("beta_param", 5.0)
                 min_val = config.get("min_timescale", min_tau)
                 max_val = config.get("max_timescale", max_tau)
-                
+
                 # Transform x to [0,1] for beta distribution
                 x_norm = (x - min_val) / (max_val - min_val)
                 x_norm = np.clip(x_norm, 0, 1)
-                
+
                 # Beta PDF (simplified)
                 from scipy.special import beta as beta_func
-                pdf_norm = (x_norm**(alpha_param - 1) * (1 - x_norm)**(beta_param - 1)) / beta_func(alpha_param, beta_param)
+
+                pdf_norm = (
+                    x_norm ** (alpha_param - 1) * (1 - x_norm) ** (beta_param - 1)
+                ) / beta_func(alpha_param, beta_param)
                 pdf = pdf_norm / (max_val - min_val)  # Scale for the transformed range
-                
-                ax.plot(x, pdf, 'brown', linewidth=2, label=f'Beta(α={alpha_param}, β={beta_param})')
-                ax.fill_between(x, pdf, alpha=0.3, color='brown')
-                ax.set_title('Theoretical: Beta Distribution')
-            
-            ax.set_xlabel('Timescale')
-            ax.set_ylabel('Density')
+
+                ax.plot(
+                    x,
+                    pdf,
+                    "brown",
+                    linewidth=2,
+                    label=f"Beta(α={alpha_param}, β={beta_param})",
+                )
+                ax.fill_between(x, pdf, alpha=0.3, color="brown")
+                ax.set_title("Theoretical: Beta Distribution")
+
+            ax.set_xlabel("Timescale")
+            ax.set_ylabel("Density")
             ax.legend()
-        
-        else:
-            ax.text(0.5, 0.5, f'Unknown distribution:\n{distribution}', 
-                   transform=ax.transAxes, ha='center', va='center')
-            ax.set_title('Unknown Distribution Type')
-
-
 
