@@ -11,17 +11,14 @@ from callbacks import (
     LossLoggerCallback,
     PositionDecodingCallback,
     TrajectoryVisualizationCallback,
+    TimescaleVisualizationCallback,
 )
 
 from datamodule import PathIntegrationDataModule
 
 from pirnns.rnns.rnn import RNN, RNNLightning
 from pirnns.rnns.coupled_rnn import CoupledRNN, CoupledRNNLightning
-from pirnns.topornns.hypergraph_rnn import (
-    Hypergraph,
-    HypergraphRNN,
-    HypergraphRNNLightning,
-)
+from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN, MultiTimescaleRNNLightning
 
 import datetime
 
@@ -51,48 +48,6 @@ def create_vanilla_rnn_model(config: dict):
     return model, lightning_module
 
 
-def create_hypergraph_rnn_model(config: dict):
-    """Create HypergraphRNN model and lightning module."""
-    # Import hypergraph RNN components
-
-    # Create hypergraph structure
-    if config.get("hypergraph_structure") == "random":
-        hypergraph = Hypergraph.create_random_hypergraph(
-            num_nodes=config["num_nodes"],
-            num_hyperedges=config["num_hyperedges"],
-            max_hyperedge_size=config.get("max_hyperedge_size", 3),
-        )
-    else:
-        raise ValueError(
-            f"Unknown hypergraph structure: {config.get('hypergraph_structure')}"
-        )
-
-    print(
-        f"Hypergraph created with {hypergraph.num_nodes} nodes and {hypergraph.num_hyperedges} hyperedges"
-    )
-
-    hypergraph.to_device(config["device"])
-
-    model = HypergraphRNN(
-        input_size=config["input_size"],
-        output_size=config["num_place_cells"],
-        hypergraph=hypergraph,
-        alpha_node=config["alpha_node"],
-        alpha_hyperedge=config["alpha_hyperedge"],
-        activation=getattr(nn, config.get("activation", "Tanh")),
-    )
-
-    lightning_module = HypergraphRNNLightning(
-        model=model,
-        learning_rate=config["learning_rate"],
-        step_size=config["step_size"],
-        gamma=config["gamma"],
-        weight_decay=config["weight_decay"],
-    )
-
-    return model, lightning_module
-
-
 def create_coupled_rnn_model(config: dict):
     """Create CoupledRNN model and lightning module."""
     model = CoupledRNN(
@@ -107,6 +62,27 @@ def create_coupled_rnn_model(config: dict):
     )
 
     lightning_module = CoupledRNNLightning(
+        model=model,
+        learning_rate=config["learning_rate"],
+        weight_decay=config["weight_decay"],
+        step_size=config["step_size"],
+        gamma=config["gamma"],
+    )
+
+    return model, lightning_module
+
+
+def create_multitimescale_rnn_model(config: dict):
+    """Create MultiTimescaleRNN model and lightning module."""
+    model = MultiTimescaleRNN(
+        input_size=config["input_size"],
+        hidden_size=config["hidden_size"],
+        output_size=config["num_place_cells"],
+        alpha_config=config["alpha_config"],
+        activation=getattr(nn, config["activation"]),
+    )
+
+    lightning_module = MultiTimescaleRNNLightning(
         model=model,
         learning_rate=config["learning_rate"],
         weight_decay=config["weight_decay"],
@@ -173,12 +149,15 @@ def main(config: dict):
     if model_type == "vanilla":
         model, lightning_module = create_vanilla_rnn_model(config)
         print("Vanilla PathIntRNN initialized")
-    elif model_type == "hypergraph":
-        model, lightning_module = create_hypergraph_rnn_model(config)
-        print("HypergraphRNN initialized")
     elif model_type == "coupled":
         model, lightning_module = create_coupled_rnn_model(config)
         print("CoupledRNN initialized")
+    elif model_type == "multitimescale":
+        model, lightning_module = create_multitimescale_rnn_model(config)
+        print("MultiTimescaleRNN initialized")
+        # Print alpha statistics
+        alpha_stats = model.get_alpha_stats()
+        print(f"Alpha statistics: {alpha_stats}")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -218,16 +197,24 @@ def main(config: dict):
         num_trajectories_to_plot=3,
     )
 
+    callbacks = [
+        checkpoint_callback,
+        loss_logger,
+        position_decoding_callback,
+        trajectory_viz_callback,
+    ]
+
+    if model_type == "multitimescale":
+        timescale_viz_callback = TimescaleVisualizationCallback(
+            log_at_epoch=config["log_at_epoch"],
+        )
+        callbacks.append(timescale_viz_callback)
+
     trainer = Trainer(
         logger=wandb_logger,
         max_epochs=config["max_epochs"],
         default_root_dir=log_dir,
-        callbacks=[
-            checkpoint_callback,
-            loss_logger,
-            position_decoding_callback,
-            trajectory_viz_callback,
-        ],
+        callbacks=callbacks,
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
     )
 
@@ -255,7 +242,7 @@ def main(config: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run RNN training (vanilla or hypergraph)"
+        description="Run RNN training (vanilla, coupled, multitimescale)"
     )
     parser.add_argument(
         "--config",
