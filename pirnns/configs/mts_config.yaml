@@ -37,16 +37,16 @@ hidden_size: 4096
 activation: "ReLU" #"Tanh"
 
 # Timescales configuration
-timescales_config:
-  type: "continuous"
-  distribution: "powerlaw"
-  exponent: 2
-  min_timescale: 0.0434 # corresponds to alpha = 0.9
-  max_timescale: 2
-
 # timescales_config:
-#   type: "discrete"
-#   values: [0.001] #, 0.448] # corresponds to [1, 0.2] alpha
+#   type: "continuous"
+#   distribution: "powerlaw"
+#   exponent: 2
+#   min_timescale: 0.0434 # corresponds to alpha = 0.9
+#   max_timescale: 2
+
+timescales_config:
+  type: "discrete"
+  values: [0.001, 0.1, 0.2, 0.448, 0.7, 0.9] # corresponds to [1, 0.2] alpha
 
 # timescales_config:
 #   type: "continuous"

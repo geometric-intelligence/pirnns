@@ -16,6 +16,14 @@ or to run the coupled RNN, use the following command:
 python main.py --config configs/coupled_config.yaml
 ```
 
+or to run the multitimescale RNN, use the following command:
+
+```bash
+python main.py --config configs/mts_config.yaml
+```
+
+
+
 3. The script will create a run ID (based on the time of the run) and save the trained model in `logs/checkpoints/<run_id>/`.
 
 
