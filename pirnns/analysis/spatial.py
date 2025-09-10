@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import torch
 from typing import Tuple, Optional, List
 from pirnns.rnns.rnn import RNN
-from pirnns.rnns.coupled_rnn import CoupledRNN
+from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN
 
 
 class SpatialAnalyzer:
@@ -23,29 +23,25 @@ class SpatialAnalyzer:
 
     def __init__(
         self,
-        model: RNN | CoupledRNN,
+        model: RNN | MultiTimescaleRNN,
         device: str,
         model_type: str = "vanilla",
-        population_to_visualize: str = "pop1",
     ):
         """
         Initialize spatial analyzer.
 
         Parameters:
         -----------
-        model : RNN or CoupledRNN
+        model : RNN or MultiTimescaleRNN
             Trained model to analyze
         device : str
             Device to run model on ("cuda" or "cpu")
         model_type : str
-            Type of model ("vanilla" or "coupled")
-        population_to_visualize : str
-            For coupled models: "pop1", "pop2", or "both"
+            Type of model ("vanilla" or "multitimescale")
         """
         self.model = model
         self.device = device
         self.model_type = model_type
-        self.population_to_visualize = population_to_visualize
 
         # Will be populated after computing rate maps
         self.rate_maps = None
@@ -244,8 +240,6 @@ class SpatialAnalyzer:
             axes = axes.reshape(1, -1)
 
         title_prefix = f"{self.model_type.capitalize()}"
-        if self.model_type == "coupled":
-            title_prefix += f" {self.population_to_visualize}"
 
         for idx, unit_idx in enumerate(units_to_plot):
             row = idx // cols
@@ -362,39 +356,23 @@ class SpatialAnalyzer:
         place_cells = place_cells.to(self.device)
 
         with torch.no_grad():
-            if self.model_type == "vanilla":
+            if self.model_type in ["vanilla", "multitimescale"]:
                 hidden_states, _ = self.model(
                     inputs=inputs, place_cells_0=place_cells[:, 0, :]
                 )
                 return hidden_states.shape[-1]
-            elif self.model_type == "coupled":
-                hidden1_states, hidden2_states, _ = self.model(
-                    inputs=inputs, place_cells_0=place_cells[:, 0, :]
-                )
-                if self.population_to_visualize == "pop1":
-                    return hidden1_states.shape[-1]
-                elif self.population_to_visualize == "pop2":
-                    return hidden2_states.shape[-1]
-                elif self.population_to_visualize == "both":
-                    return hidden1_states.shape[-1] + hidden2_states.shape[-1]
+            else:
+                raise ValueError(f"Unknown model type: {self.model_type}")
 
     def _get_hidden_states(self, inputs, place_cells):
         """Get hidden states from the model."""
-        if self.model_type == "vanilla":
+        if self.model_type in ["vanilla", "multitimescale"]:
             hidden_states, _ = self.model(
                 inputs=inputs, place_cells_0=place_cells[:, 0, :]
             )
             return hidden_states
-        elif self.model_type == "coupled":
-            hidden1_states, hidden2_states, _ = self.model(
-                inputs=inputs, place_cells_0=place_cells[:, 0, :]
-            )
-            if self.population_to_visualize == "pop1":
-                return hidden1_states
-            elif self.population_to_visualize == "pop2":
-                return hidden2_states
-            elif self.population_to_visualize == "both":
-                return torch.cat([hidden1_states, hidden2_states], dim=-1)
+        else:
+            raise ValueError(f"Unknown model type: {self.model_type}")
 
     def _select_units(
         self, num_units: int, selection_method: str, random_seed: int

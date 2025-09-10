@@ -230,16 +230,16 @@ class DynamicsAnalyzer:
 
         Parameters:
         -----------
-        trained_model : RNN or CoupledRNN
+        trained_model : RNN or MultiTimescaleRNN
             Trained model to analyze
-        untrained_model : RNN or CoupledRNN
+        untrained_model : RNN or MultiTimescaleRNN
             Untrained model for comparison
         device : str
             Device to run models on
         model_type : str
-            "vanilla" or "coupled"
+            "vanilla" or "multitimescale"
         population_to_visualize : str
-            For coupled models: "pop1", "pop2", or "both"
+            For multitimescale models: "pop1", "pop2", or "both"
         """
         self.trained_model = trained_model
         self.untrained_model = untrained_model
@@ -417,7 +417,7 @@ class DynamicsAnalyzer:
             raise ValueError("Must compute PCA first using compute_pca()")
 
         population_name = f"{self.model_type.capitalize()}"
-        if self.model_type == "coupled":
+        if self.model_type == "multitimescale":
             population_name += f" {self.population_to_visualize}"
 
         plot_pca_spectrum(
@@ -544,7 +544,7 @@ class DynamicsAnalyzer:
 
         # Overall title
         population_name = f"{self.model_type.capitalize()}"
-        if self.model_type == "coupled":
+        if self.model_type == "multitimescale":
             population_name += f" {self.population_to_visualize}"
 
         fig.suptitle(
@@ -562,16 +562,11 @@ class DynamicsAnalyzer:
         if self.model_type == "vanilla":
             hidden_states, _ = model(inputs=inputs, place_cells_0=place_cells[:, 0, :])
             return hidden_states
-        elif self.model_type == "coupled":
-            hidden1_states, hidden2_states, _ = model(
-                inputs=inputs, place_cells_0=place_cells[:, 0, :]
-            )
-            if self.population_to_visualize == "pop1":
-                return hidden1_states
-            elif self.population_to_visualize == "pop2":
-                return hidden2_states
-            elif self.population_to_visualize == "both":
-                return torch.cat([hidden1_states, hidden2_states], dim=-1)
+        elif self.model_type == "multitimescale":
+            hidden_states, _ = model(inputs=inputs, place_cells_0=place_cells[:, 0, :])
+            return hidden_states
+        else:
+            raise ValueError(f"Unknown model type: {self.model_type}")
 
     def plot_spatial_vs_latent_distance(
         self,

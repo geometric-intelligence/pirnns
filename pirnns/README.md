@@ -10,12 +10,6 @@ To train a path-integrating RNN, take the following steps:
 python main.py --config configs/vanilla_config.yaml
 ```
 
-or to run the coupled RNN, use the following command:
-
-```bash
-python main.py --config configs/coupled_config.yaml
-```
-
 or to run the multitimescale RNN, use the following command:
 
 ```bash

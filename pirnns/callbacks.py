@@ -7,7 +7,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import wandb
 import numpy as np
-from pirnns.rnns.coupled_rnn import CoupledRNN
 from pirnns.rnns.rnn import RNN
 from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN
 
@@ -99,10 +98,6 @@ class PositionDecodingCallback(L.Callback):
                 _, outputs = pl_module.model(
                     inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
                 )
-            elif isinstance(pl_module.model, CoupledRNN):
-                _, _, outputs = pl_module.model(
-                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-                )
             elif isinstance(pl_module.model, MultiTimescaleRNN):
                 _, outputs = pl_module.model(
                     inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
@@ -180,10 +175,6 @@ class TrajectoryVisualizationCallback(L.Callback):
         with torch.no_grad():
             if isinstance(pl_module.model, RNN):
                 _, outputs = pl_module.model(
-                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-                )
-            elif isinstance(pl_module.model, CoupledRNN):
-                _, _, outputs = pl_module.model(
                     inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
                 )
             elif isinstance(pl_module.model, MultiTimescaleRNN):
@@ -544,64 +535,92 @@ class TimescaleVisualizationCallback(L.Callback):
         if is_discrete:
             # Create a 2x1 layout for discrete case
             fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-            
+
             # === DISCRETE TIMESCALE VALUES ===
             ax1 = axes[0]
             unique_vals, counts = np.unique(timescales, return_counts=True)
-            
+
             # Use stem plot instead of bars for discrete values
-            markerline, stemlines, baseline = ax1.stem(unique_vals, counts, basefmt=' ')
+            markerline, stemlines, baseline = ax1.stem(unique_vals, counts, basefmt=" ")
             markerline.set_markersize(12)
-            markerline.set_markerfacecolor('skyblue')
-            markerline.set_markeredgecolor('navy')
+            markerline.set_markerfacecolor("skyblue")
+            markerline.set_markeredgecolor("navy")
             stemlines.set_linewidth(3)
-            stemlines.set_color('navy')
-            
+            stemlines.set_color("navy")
+
             # Add value labels on top of each stem
-            for val, count in zip(unique_vals, counts):
-                ax1.annotate(f'{count}', (val, count), 
-                           textcoords="offset points", xytext=(0,10), ha='center',
-                           fontsize=12, fontweight='bold')
-                ax1.annotate(f'τ={val:.3f}', (val, 0), 
-                           textcoords="offset points", xytext=(0,-25), ha='center',
-                           fontsize=10, rotation=45)
-            
-            ax1.set_xlabel('Timescale Values')
-            ax1.set_ylabel('Number of Units')
-            ax1.set_title(f'Discrete Timescale Distribution\n{len(unique_vals)} unique values')
+            for val, count in zip(unique_vals, counts, strict=False):
+                ax1.annotate(
+                    f"{count}",
+                    (val, count),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                    fontsize=12,
+                    fontweight="bold",
+                )
+                ax1.annotate(
+                    f"τ={val:.3f}",
+                    (val, 0),
+                    textcoords="offset points",
+                    xytext=(0, -25),
+                    ha="center",
+                    fontsize=10,
+                    rotation=45,
+                )
+
+            ax1.set_xlabel("Timescale Values")
+            ax1.set_ylabel("Number of Units")
+            ax1.set_title(
+                f"Discrete Timescale Distribution\n{len(unique_vals)} unique values"
+            )
             ax1.grid(True, alpha=0.3)
             ax1.set_ylim(0, max(counts) * 1.2)
-            
+
             # === CORRESPONDING ALPHA VALUES ===
             ax2 = axes[1]
             unique_alphas = 1 - np.exp(-dt / unique_vals)
-            
-            markerline2, stemlines2, baseline2 = ax2.stem(unique_alphas, counts, basefmt=' ')
+
+            markerline2, stemlines2, baseline2 = ax2.stem(
+                unique_alphas, counts, basefmt=" "
+            )
             markerline2.set_markersize(12)
-            markerline2.set_markerfacecolor('lightcoral')
-            markerline2.set_markeredgecolor('darkred')
+            markerline2.set_markerfacecolor("lightcoral")
+            markerline2.set_markeredgecolor("darkred")
             stemlines2.set_linewidth(3)
-            stemlines2.set_color('darkred')
-            
+            stemlines2.set_color("darkred")
+
             # Add value labels
-            for alpha, count in zip(unique_alphas, counts):
-                ax2.annotate(f'{count}', (alpha, count), 
-                           textcoords="offset points", xytext=(0,10), ha='center',
-                           fontsize=12, fontweight='bold')
-                ax2.annotate(f'α={alpha:.3f}', (alpha, 0), 
-                           textcoords="offset points", xytext=(0,-25), ha='center',
-                           fontsize=10, rotation=45)
-            
-            ax2.set_xlabel('Alpha Values')
-            ax2.set_ylabel('Number of Units')
-            ax2.set_title(f'Corresponding Alpha Distribution\n(dt={dt})')
+            for alpha, count in zip(unique_alphas, counts, strict=False):
+                ax2.annotate(
+                    f"{count}",
+                    (alpha, count),
+                    textcoords="offset points",
+                    xytext=(0, 10),
+                    ha="center",
+                    fontsize=12,
+                    fontweight="bold",
+                )
+                ax2.annotate(
+                    f"α={alpha:.3f}",
+                    (alpha, 0),
+                    textcoords="offset points",
+                    xytext=(0, -25),
+                    ha="center",
+                    fontsize=10,
+                    rotation=45,
+                )
+
+            ax2.set_xlabel("Alpha Values")
+            ax2.set_ylabel("Number of Units")
+            ax2.set_title(f"Corresponding Alpha Distribution\n(dt={dt})")
             ax2.grid(True, alpha=0.3)
             ax2.set_ylim(0, max(counts) * 1.2)
-            
+
         else:
             # Create a 2x2 layout for continuous case
             fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-            
+
             # === TIMESCALE HISTOGRAM ===
             ax1 = axes[0, 0]
             n_bins = min(50, len(unique_timescales))
@@ -616,7 +635,11 @@ class TimescaleVisualizationCallback(L.Callback):
             # Add statistics text
             stats_text = f"Min: {timescales.min():.3f}\nMax: {timescales.max():.3f}\nMean: {timescales.mean():.3f}\nStd: {timescales.std():.3f}"
             ax1.text(
-                0.02, 0.98, stats_text, transform=ax1.transAxes, verticalalignment="top",
+                0.02,
+                0.98,
+                stats_text,
+                transform=ax1.transAxes,
+                verticalalignment="top",
                 bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
             )
 
@@ -624,7 +647,11 @@ class TimescaleVisualizationCallback(L.Callback):
             ax2 = axes[0, 1]
             n_bins_alpha = min(50, len(np.unique(alphas)))
             ax2.hist(
-                alphas, bins=n_bins_alpha, alpha=0.7, color="lightcoral", edgecolor="black"
+                alphas,
+                bins=n_bins_alpha,
+                alpha=0.7,
+                color="lightcoral",
+                edgecolor="black",
             )
             ax2.set_xlabel("Alpha (update rate)")
             ax2.set_ylabel("Number of Units")
@@ -634,7 +661,11 @@ class TimescaleVisualizationCallback(L.Callback):
             # Add statistics text
             alpha_stats_text = f"Min: {alphas.min():.3f}\nMax: {alphas.max():.3f}\nMean: {alphas.mean():.3f}\nStd: {alphas.std():.3f}"
             ax2.text(
-                0.02, 0.98, alpha_stats_text, transform=ax2.transAxes, verticalalignment="top",
+                0.02,
+                0.98,
+                alpha_stats_text,
+                transform=ax2.transAxes,
+                verticalalignment="top",
                 bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
             )
 
@@ -646,59 +677,79 @@ class TimescaleVisualizationCallback(L.Callback):
                 # Show KDE if available
                 try:
                     from scipy.stats import gaussian_kde
+
                     kde = gaussian_kde(timescales)
                     x_range = np.linspace(timescales.min(), timescales.max(), 200)
                     ax3.plot(x_range, kde(x_range), "g-", linewidth=2, label="KDE")
-                    ax3.fill_between(x_range, kde(x_range), alpha=0.3, color="lightgreen")
+                    ax3.fill_between(
+                        x_range, kde(x_range), alpha=0.3, color="lightgreen"
+                    )
                     ax3.set_xlabel("Timescale")
                     ax3.set_ylabel("Density")
                     ax3.set_title("Empirical Density (KDE)")
                     ax3.legend()
                 except ImportError:
-                    ax3.text(0.5, 0.5, "scipy not available\nfor KDE", 
-                           transform=ax3.transAxes, ha="center", va="center")
+                    ax3.text(
+                        0.5,
+                        0.5,
+                        "scipy not available\nfor KDE",
+                        transform=ax3.transAxes,
+                        ha="center",
+                        va="center",
+                    )
                     ax3.set_title("Density Plot Unavailable")
             ax3.grid(True, alpha=0.3)
-            
+
             # === TIMESCALE RANK PLOT (much more useful!) ===
             ax4 = axes[1, 1]
-            
+
             # Sort timescales and show rank order
             sorted_idx = np.argsort(timescales)
             sorted_timescales = timescales[sorted_idx]
             ranks = np.arange(len(sorted_timescales))
-            
+
             # Plot timescales by rank
-            ax4.plot(ranks, sorted_timescales, 'o-', markersize=2, linewidth=1, alpha=0.7)
-            ax4.set_xlabel('Unit Rank (sorted by timescale)')
-            ax4.set_ylabel('Timescale')
-            ax4.set_title('Timescale Spectrum\n(Units sorted by timescale)')
+            ax4.plot(
+                ranks, sorted_timescales, "o-", markersize=2, linewidth=1, alpha=0.7
+            )
+            ax4.set_xlabel("Unit Rank (sorted by timescale)")
+            ax4.set_ylabel("Timescale")
+            ax4.set_title("Timescale Spectrum\n(Units sorted by timescale)")
             ax4.grid(True, alpha=0.3)
-            
+
             # Add percentile lines
             percentiles = [10, 25, 50, 75, 90]
-            colors = ['red', 'orange', 'green', 'orange', 'red']
-            for p, color in zip(percentiles, colors):
+            colors = ["red", "orange", "green", "orange", "red"]
+            for p, color in zip(percentiles, colors, strict=False):
                 val = np.percentile(timescales, p)
-                ax4.axhline(val, color=color, linestyle='--', alpha=0.7, 
-                           label=f'{p}th percentile: {val:.3f}')
+                ax4.axhline(
+                    val,
+                    color=color,
+                    linestyle="--",
+                    alpha=0.7,
+                    label=f"{p}th percentile: {val:.3f}",
+                )
             ax4.legend(fontsize=8)
 
         # Overall title
-        config_str = f"Config: {timescale_config}" if timescale_config else "No config available"
+        config_str = (
+            f"Config: {timescale_config}" if timescale_config else "No config available"
+        )
         distribution_type = "Discrete" if is_discrete else "Continuous"
         fig.suptitle(
-            f"Timescale Analysis ({distribution_type}) - {len(timescales)} units\n{config_str}", 
-            fontsize=14
+            f"Timescale Analysis ({distribution_type}) - {len(timescales)} units\n{config_str}",
+            fontsize=14,
         )
 
         plt.tight_layout()
 
         # Log to wandb
         if trainer.logger is not None and hasattr(trainer.logger, "experiment"):
-            trainer.logger.experiment.log({
-                "timescale_analysis": wandb.Image(fig),
-            })
+            trainer.logger.experiment.log(
+                {
+                    "timescale_analysis": wandb.Image(fig),
+                }
+            )
 
         plt.close(fig)
         self.logged = True
@@ -833,4 +884,3 @@ class TimescaleVisualizationCallback(L.Callback):
             ax.set_xlabel("Timescale")
             ax.set_ylabel("Density")
             ax.legend()
-

@@ -17,7 +17,6 @@ from callbacks import (
 from datamodule import PathIntegrationDataModule
 
 from pirnns.rnns.rnn import RNN, RNNLightning
-from pirnns.rnns.coupled_rnn import CoupledRNN, CoupledRNNLightning
 from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN, MultiTimescaleRNNLightning
 
 import datetime
@@ -38,30 +37,6 @@ def create_vanilla_rnn_model(config: dict):
     )
 
     lightning_module = RNNLightning(
-        model=model,
-        learning_rate=config["learning_rate"],
-        weight_decay=config["weight_decay"],
-        step_size=config["step_size"],
-        gamma=config["gamma"],
-    )
-
-    return model, lightning_module
-
-
-def create_coupled_rnn_model(config: dict):
-    """Create CoupledRNN model and lightning module."""
-    model = CoupledRNN(
-        input_size=config["input_size"],
-        pop1_size=config["pop1_size"],
-        pop2_size=config["pop2_size"],
-        output_size=config["num_place_cells"],
-        alpha1=config["alpha1"],
-        alpha2=config["alpha2"],
-        activation=getattr(nn, config["activation"]),
-        output_from=config["output_from"],
-    )
-
-    lightning_module = CoupledRNNLightning(
         model=model,
         learning_rate=config["learning_rate"],
         weight_decay=config["weight_decay"],
@@ -150,13 +125,9 @@ def main(config: dict):
     if model_type == "vanilla":
         model, lightning_module = create_vanilla_rnn_model(config)
         print("Vanilla PathIntRNN initialized")
-    elif model_type == "coupled":
-        model, lightning_module = create_coupled_rnn_model(config)
-        print("CoupledRNN initialized")
     elif model_type == "multitimescale":
         model, lightning_module = create_multitimescale_rnn_model(config)
         print("MultiTimescaleRNN initialized")
-        # Print timescale statistics
         timescale_stats = model.get_timescale_stats()
         print(f"Timescale statistics: {timescale_stats}")
     else:
@@ -251,7 +222,7 @@ def main(config: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run RNN training (vanilla, coupled, multitimescale)"
+        description="Run RNN training (vanilla, multitimescale)"
     )
     parser.add_argument(
         "--config",

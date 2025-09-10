@@ -156,8 +156,10 @@ class MultiTimescaleRNN(nn.Module):
                     # General case
                     ratio = max_timescale / min_timescale
                     exponent_term = 1.0 - exponent
-                    power_term = (ratio ** exponent_term) * u + (1 - u)
-                    timescales = min_timescale * torch.pow(power_term, 1.0 / exponent_term)
+                    power_term = (ratio**exponent_term) * u + (1 - u)
+                    timescales = min_timescale * torch.pow(
+                        power_term, 1.0 / exponent_term
+                    )
 
             else:
                 raise ValueError(f"Unknown continuous distribution: {distribution}")
