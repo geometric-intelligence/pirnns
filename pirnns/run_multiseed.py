@@ -17,9 +17,7 @@ from lightning.pytorch.utilities.rank_zero import rank_zero_only
 
 
 @rank_zero_only
-def create_experiment_directory(
-    base_log_dir: str
-    ) -> str:
+def create_experiment_directory(base_log_dir: str) -> str:
     """Create experiment directory structure."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_dir = os.path.join(base_log_dir, "experiments", f"expt_{timestamp}")
@@ -32,8 +30,8 @@ def create_experiment_directory(
 
 @rank_zero_only
 def save_experiment_config(
-    config: Dict[Any, Any], 
-    experiment_dir: str, 
+    config: Dict[Any, Any],
+    experiment_dir: str,
     seeds: List[int],
 ) -> None:
     """Save the base config and experiment metadata."""
@@ -85,7 +83,7 @@ def run_single_seed(
     # the seed-specific directory will be: experiment_dir/seed_{seed}/
     seed_dir = os.path.join(experiment_dir, f"seed_{seed}")
 
-    #run main (avoid subprocess for better error handling)
+    # run main (avoid subprocess for better error handling)
     try:
         result = main_single_seed(seed_config)
 
@@ -183,8 +181,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run multi-seed RNN training experiment"
     )
-    parser.add_argument("--config", type=str, required=True, help="Path to config file")    
-    
+    parser.add_argument("--config", type=str, required=True, help="Path to config file")
+
     parser.add_argument(
         "--n_seeds", type=int, default=5, help="Number of random seeds to run"
     )
@@ -218,20 +216,18 @@ def main():
     print(f"Running experiment with seeds: {seeds}")
 
     log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
-    
+
     # Generate consistent experiment directory path across all ranks
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_dir = os.path.join(log_dir, "experiments", f"expt_{timestamp}")
-    
+
     # Only create directories on rank 0
     create_experiment_directory_only(experiment_dir)
     save_experiment_config(config, experiment_dir, seeds)
 
     run_results = []
     for seed_idx, seed in enumerate(seeds):
-        result = run_single_seed(
-            config, seed, experiment_dir, seed_idx, len(seeds)
-        )
+        result = run_single_seed(config, seed, experiment_dir, seed_idx, len(seeds))
         run_results.append(result)
 
     generate_experiment_summary(experiment_dir, run_results)
