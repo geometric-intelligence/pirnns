@@ -1,7 +1,7 @@
 # === Project configuration ===
 project_name: "path-integration-rnn"
 model_type: "multitimescale"
-device: 'cuda:3'
+device: 'cuda'
 seed: 0 # Global seed
 
 # === Data (trajectory) configuration ===
@@ -10,7 +10,7 @@ trajectory_type: 'ornstein_uhlenbeck' #'random_walk'
 batch_size: 200
 num_workers: 7
 train_val_split: 0.8
-velocity_representation: 'cartesian' #'polar'
+velocity_representation: 'polar'
 dt: 0.1 #0.1s (reasonable neural dynamics timescale)
 num_time_steps: 20
 speed_scale: 0.2
@@ -46,7 +46,8 @@ activation: "ReLU" #"Tanh"
 
 timescales_config:
   type: "discrete"
-  values: [0.001, 0.1, 0.2, 0.448, 0.7, 0.9] # corresponds to [1, 0.2] alpha
+  values: [0.1443] # alpha 0.5
+  #values: [0.001, 0.1, 0.2, 0.448, 0.7, 0.9] # corresponds to [1, 0.2] alpha
 
 # timescales_config:
 #   type: "continuous"
@@ -60,7 +61,7 @@ learning_rate: 1.0e-4
 weight_decay: 1.0e-4
 step_size: 100
 gamma: 0.5
-max_epochs: 15
+max_epochs: 30
 
 # === Callback configs ===
 decode_k: 3
