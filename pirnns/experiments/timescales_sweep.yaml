@@ -1,0 +1,35 @@
+# Base configuration to inherit from
+base_config: "configs/mts_config.yaml"
+
+# Number of seeds per configuration
+n_seeds: 3
+
+# Parameter sweep configurations
+experiments:
+  - name: "discrete_single"
+    overrides:
+      timescales_config:
+        type: "discrete"
+        values: [0.1443]
+  
+  - name: "discrete_dual"
+    overrides:
+      timescales_config:
+        type: "discrete"
+        values: [0.1, 0.5]
+  
+  - name: "discrete_five"
+    overrides:
+      timescales_config:
+        type: "discrete"
+        values: [0.1, 0.2, 0.3, 0.4, 0.5]
+  
+  - name: "continuous_powerlaw"
+    overrides:
+      timescales_config:
+        type: "continuous"
+        distribution: "powerlaw"
+        exponent: 2
+        min_timescale: 0.0434
+        max_timescale: 2
+      #max_epochs: 20  # Example of overriding other parameters too 

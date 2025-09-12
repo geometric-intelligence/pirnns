@@ -73,7 +73,7 @@ def main_single_seed(config: dict) -> dict:
     """
     Main training function for a single seed.
     Used by both standalone runs and multi-seed experiments.
-    
+
     Returns:
         dict: Training results including final validation loss
     """
@@ -86,17 +86,17 @@ def main_single_seed(config: dict) -> dict:
     # Generate unique run identifier
     run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     seed = config["seed"]
-    
+
     print(f"Starting training run: {run_id}")
     print(f"Model type: {model_type}, Seed: {seed}")
 
     # Determine save directory structure
-    if "experiment_name" in config:
-        # Multi-seed experiment mode: save in log_dir/experiments/experiment_name/seed_{seed}/
-        experiment_dir = os.path.join(log_dir, "experiments", config["experiment_name"])
+    if "experiment_dir" in config:
+        # Multi-seed experiment mode: save in log_dir/experiments/experiment_dir/seed_{seed}/
+        experiment_dir = os.path.join(log_dir, "experiments", config["experiment_dir"])
         run_dir = os.path.join(experiment_dir, f"seed_{seed}")
         wandb_name = f"{config['project_name']}_{model_type}_seed{seed}_{run_id}"
-        wandb_group = config["experiment_name"]  # Groups runs in wandb
+        wandb_group = config["experiment_dir"]  # Groups runs in wandb
     else:
         # Single run mode (legacy): save in log_dir/single_runs/{model_type}_{run_id}/
         run_dir = os.path.join(log_dir, "single_runs", f"{model_type}_{run_id}")
@@ -231,8 +231,11 @@ def main_single_seed(config: dict) -> dict:
 
     # Get final validation loss from callback metrics
     final_val_loss = None
-    if hasattr(lightning_module, 'trainer') and lightning_module.trainer.callback_metrics:
-        final_val_loss = lightning_module.trainer.callback_metrics.get('val_loss', None)
+    if (
+        hasattr(lightning_module, "trainer")
+        and lightning_module.trainer.callback_metrics
+    ):
+        final_val_loss = lightning_module.trainer.callback_metrics.get("val_loss", None)
         if final_val_loss is not None:
             final_val_loss = float(final_val_loss)
 
@@ -249,7 +252,7 @@ def main_single_seed(config: dict) -> dict:
         print(f"All artifacts saved to: {run_dir}")
 
     save_additional_artifacts()
-    
+
     return {"final_val_loss": final_val_loss}
 
 
