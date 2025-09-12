@@ -69,7 +69,14 @@ def create_multitimescale_rnn_model(config: dict):
     return model, lightning_module
 
 
-def main(config: dict):
+def main_single_seed(config: dict) -> dict:
+    """
+    Main training function for a single seed.
+    Used by both standalone runs and multi-seed experiments.
+    
+    Returns:
+        dict: Training results including final validation loss
+    """
     # Set global seed - this handles all randomness sources
     seed_everything(config["seed"], workers=True)
     print(f"Global seed set to: {config['seed']}")
@@ -78,18 +85,37 @@ def main(config: dict):
 
     # Generate unique run identifier
     run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    seed = config["seed"]
+    
     print(f"Starting training run: {run_id}")
-    print(f"Model type: {model_type}")
+    print(f"Model type: {model_type}, Seed: {seed}")
+
+    # Determine save directory structure
+    if "experiment_name" in config:
+        # Multi-seed experiment mode: save in log_dir/experiments/experiment_name/seed_{seed}/
+        experiment_dir = os.path.join(log_dir, "experiments", config["experiment_name"])
+        run_dir = os.path.join(experiment_dir, f"seed_{seed}")
+        wandb_name = f"{config['project_name']}_{model_type}_seed{seed}_{run_id}"
+        wandb_group = config["experiment_name"]  # Groups runs in wandb
+    else:
+        # Single run mode (legacy): save in log_dir/single_runs/{model_type}_{run_id}/
+        run_dir = os.path.join(log_dir, "single_runs", f"{model_type}_{run_id}")
+        wandb_name = f"{config['project_name']}_{model_type}_{run_id}"
+        wandb_group = None
+
+    # Create checkpoints subdirectory in the run directory
+    checkpoints_dir = os.path.join(run_dir, "checkpoints")
 
     wandb_logger = WandbLogger(
         project=config["project_name"],
-        name=f"{config['project_name']}_{model_type}_{run_id}",
+        name=wandb_name,
+        group=wandb_group,  # Groups related runs in wandb
         dir=log_dir,
         save_dir=log_dir,
         config=config,
     )
     print("Wandb initialized. Find logs at: ", log_dir)
-    print(f"Wandb run name: {config['project_name']}_{model_type}_{run_id}")
+    print(f"Wandb run name: {wandb_name}")
 
     datamodule = PathIntegrationDataModule(
         num_trajectories=config["num_trajectories"],
@@ -135,16 +161,14 @@ def main(config: dict):
 
     print(f"{model_type.capitalize()} Lightning module initialized")
 
-    run_dir = os.path.join(log_dir, "checkpoints", f"{model_type}_{run_id}")
-
     @rank_zero_only
     def create_directories():
-        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(checkpoints_dir, exist_ok=True)
 
     create_directories()
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=run_dir,
+        dirpath=checkpoints_dir,  # Save checkpoints in subdirectory
         filename="best-model-{epoch:02d}-{val_loss:.3f}",
         save_top_k=1,
         monitor="val_loss",
@@ -152,7 +176,7 @@ def main(config: dict):
         save_last=True,
     )
 
-    loss_logger = LossLoggerCallback(save_dir=run_dir)
+    loss_logger = LossLoggerCallback(save_dir=run_dir)  # Logs go in main run_dir
 
     position_decoding_callback = PositionDecodingCallback(
         place_cell_centers=datamodule.place_cell_centers,
@@ -205,19 +229,34 @@ def main(config: dict):
 
     print("Training complete!")
 
+    # Get final validation loss from callback metrics
+    final_val_loss = None
+    if hasattr(lightning_module, 'trainer') and lightning_module.trainer.callback_metrics:
+        final_val_loss = lightning_module.trainer.callback_metrics.get('val_loss', None)
+        if final_val_loss is not None:
+            final_val_loss = float(final_val_loss)
+
     # Only save on rank 0
     @rank_zero_only
     def save_additional_artifacts():
-        model_path = os.path.join(run_dir, f"final_model_{run_id}.pth")
+        model_path = os.path.join(run_dir, f"final_model_seed{seed}.pth")
         torch.save(lightning_module.model.state_dict(), model_path)
 
-        config_path = os.path.join(run_dir, f"config_{run_id}.yaml")
+        config_path = os.path.join(run_dir, f"config_seed{seed}.yaml")
         with open(config_path, "w") as f:
             yaml.dump(config, f)
 
         print(f"All artifacts saved to: {run_dir}")
 
     save_additional_artifacts()
+    
+    return {"final_val_loss": final_val_loss}
+
+
+# Legacy main function for backwards compatibility
+def main(config: dict):
+    """Legacy main function for single runs."""
+    return main_single_seed(config)
 
 
 if __name__ == "__main__":
