@@ -12,7 +12,7 @@ import argparse
 import datetime
 import copy
 from typing import List, Dict, Any, Tuple
-from main import main_single_seed
+from single_run import single_seed
 import numpy as np
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
 
@@ -180,7 +180,7 @@ def run_single_experiment(
         seed_dir = os.path.join(exp_dir, f"seed_{seed}")
 
         try:
-            result = main_single_seed(seed_config)
+            result = single_seed(seed_config)
 
             # Save run summary
             run_summary = {

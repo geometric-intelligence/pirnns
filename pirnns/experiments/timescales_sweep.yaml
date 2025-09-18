@@ -1,5 +1,5 @@
 # Base configuration to inherit from
-base_config: "configs/mts_config.yaml"
+base_config: "configs/mts.yaml"
 
 # Number of seeds per configuration
 n_seeds: 3

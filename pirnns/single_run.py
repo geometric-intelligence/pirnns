@@ -27,7 +27,6 @@ print("Log directory:", log_dir)
 
 def create_vanilla_rnn_model(config: dict):
     """Create vanilla PathIntRNN model and lightning module."""
-
     model = RNN(
         input_size=config["input_size"],
         hidden_size=config["hidden_size"],
@@ -69,47 +68,44 @@ def create_multitimescale_rnn_model(config: dict):
     return model, lightning_module
 
 
-def main_single_seed(config: dict) -> dict:
+def single_seed(config: dict) -> dict:
     """
     Main training function for a single seed.
-    Used by both standalone runs and multi-seed experiments.
-
+    Used by both single runs and parameter sweeps.
+    
     Returns:
         dict: Training results including final validation loss
     """
-    # Set global seed - this handles all randomness sources
+    # Set global seed
     seed_everything(config["seed"], workers=True)
     print(f"Global seed set to: {config['seed']}")
 
     model_type = config.get("model_type", "vanilla").lower()
-
-    # Generate unique run identifier
-    run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     seed = config["seed"]
-
+    run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     print(f"Starting training run: {run_id}")
     print(f"Model type: {model_type}, Seed: {seed}")
 
     # Determine save directory structure
-    if "experiment_dir" in config:
-        # Multi-seed experiment mode: save in log_dir/experiments/experiment_dir/seed_{seed}/
-        experiment_dir = os.path.join(log_dir, "experiments", config["experiment_dir"])
-        run_dir = os.path.join(experiment_dir, f"seed_{seed}")
-        wandb_name = f"{config['project_name']}_{model_type}_seed{seed}_{run_id}"
-        wandb_group = config["experiment_dir"]  # Groups runs in wandb
+    if "sweep_dir" in config and "experiment_name" in config:
+        # Parameter sweep mode: save in sweep_dir/experiment_name/seed_{seed}/
+        run_dir = os.path.join(config["sweep_dir"], config["experiment_name"], f"seed_{seed}")
+        wandb_name = f"{config['project_name']}_{config['experiment_name']}_seed{seed}_{run_id}"
+        wandb_group = os.path.basename(config["sweep_dir"])  # Group by sweep name
     else:
-        # Single run mode (legacy): save in log_dir/single_runs/{model_type}_{run_id}/
+        # Single run mode: save in log_dir/single_runs/{model_type}_{run_id}/
         run_dir = os.path.join(log_dir, "single_runs", f"{model_type}_{run_id}")
         wandb_name = f"{config['project_name']}_{model_type}_{run_id}"
         wandb_group = None
 
-    # Create checkpoints subdirectory in the run directory
+    # Create checkpoints subdirectory
     checkpoints_dir = os.path.join(run_dir, "checkpoints")
 
     wandb_logger = WandbLogger(
         project=config["project_name"],
         name=wandb_name,
-        group=wandb_group,  # Groups related runs in wandb
+        group=wandb_group,
         dir=log_dir,
         save_dir=log_dir,
         config=config,
@@ -168,7 +164,7 @@ def main_single_seed(config: dict) -> dict:
     create_directories()
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoints_dir,  # Save checkpoints in subdirectory
+        dirpath=checkpoints_dir,
         filename="best-model-{epoch:02d}-{val_loss:.3f}",
         save_top_k=1,
         monitor="val_loss",
@@ -176,7 +172,7 @@ def main_single_seed(config: dict) -> dict:
         save_last=True,
     )
 
-    loss_logger = LossLoggerCallback(save_dir=run_dir)  # Logs go in main run_dir
+    loss_logger = LossLoggerCallback(save_dir=run_dir)
 
     position_decoding_callback = PositionDecodingCallback(
         place_cell_centers=datamodule.place_cell_centers,
@@ -229,17 +225,14 @@ def main_single_seed(config: dict) -> dict:
 
     print("Training complete!")
 
-    # Get final validation loss from callback metrics
+    # Get final validation loss
     final_val_loss = None
-    if (
-        hasattr(lightning_module, "trainer")
-        and lightning_module.trainer.callback_metrics
-    ):
+    if hasattr(lightning_module, "trainer") and lightning_module.trainer.callback_metrics:
         final_val_loss = lightning_module.trainer.callback_metrics.get("val_loss", None)
         if final_val_loss is not None:
             final_val_loss = float(final_val_loss)
 
-    # Only save on rank 0
+    # Save artifacts
     @rank_zero_only
     def save_additional_artifacts():
         model_path = os.path.join(run_dir, f"final_model_seed{seed}.pth")
@@ -252,34 +245,20 @@ def main_single_seed(config: dict) -> dict:
         print(f"All artifacts saved to: {run_dir}")
 
     save_additional_artifacts()
-
+    
     return {"final_val_loss": final_val_loss}
 
 
-# Legacy main function for backwards compatibility
-def main(config: dict):
-    """Legacy main function for single runs."""
-    return main_single_seed(config)
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run RNN training (vanilla, multitimescale)"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="config.yaml",
-        help="Path containing the config file",
-    )
+    parser = argparse.ArgumentParser(description="Run single RNN training")
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
     args = parser.parse_args()
 
-    config_path = args.config
-
+    config_path = os.path.join(os.path.dirname(__file__), "configs", args.config)
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found at {config_path}")
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    main(config)
+    single_seed(config)
