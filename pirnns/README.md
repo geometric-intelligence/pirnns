@@ -2,36 +2,27 @@
 
 This project provides three ways to train models:
 
-### 1. Single Training Run (`main.py`)
+### 1. Single Training Run (`single_run.py`)
 
 For testing a configuration or single model training, use:
 
 ```bash
 # Train a vanilla RNN
-python main.py --config configs/vanilla_config.yaml
+python single_run.py --config configs/vanilla.yaml
 
 # Train a multitimescale RNN  
-python main.py --config configs/mts_config.yaml
+python single_run.py --config configs/mts.yaml
 ```
 
 **Output:** `logs/single_runs/{model_type}_{timestamp}/`
 
-### 2. Multi-Seed Experiments (`run_multiseed.py`)
 
-For assessing variability across random seeds with one configuration:
-
-```bash
-python run_multiseed.py --config configs/mts_config.yaml --n_seeds 5
-```
-
-**Output:** `logs/experiments/expt_{timestamp}/seed_{0,1,2...}/`
-
-### 3. Parameter Sweeps (`run_sweep.py`)
+### 2. Parameter Sweeps (`run_sweep.py`)
 
 For comparing multiple configurations systematically:
 
 ```bash
-python run_sweep.py --experiment experiments/timescales_sweep.yaml
+python run_sweep.py --sweep experiments/timescales_sweep.yaml
 ```
 
 **Use when:**

@@ -1,7 +1,7 @@
 # === Project configuration ===
 project_name: "path-integration-rnn"
 model_type: "multitimescale"
-device: 'cuda'
+device: 'cuda:0'
 seed: 0 # Global seed
 
 # === Data (trajectory) configuration ===

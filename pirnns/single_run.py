@@ -163,6 +163,21 @@ def single_seed(config: dict) -> dict:
 
     create_directories()
 
+    @rank_zero_only
+    def save_untrained_model():
+        untrained_ckpt_path = os.path.join(checkpoints_dir, "untrained.ckpt")
+        checkpoint = {
+            'state_dict': lightning_module.state_dict(),
+            'lr_schedulers': [],
+            'epoch': 0,
+            'global_step': 0,
+            'hyper_parameters': dict(config)
+        }
+        torch.save(checkpoint, untrained_ckpt_path)
+        print(f"Untrained model saved to: {untrained_ckpt_path}")
+
+    save_untrained_model()
+
     checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoints_dir,
         filename="best-model-{epoch:02d}-{val_loss:.3f}",

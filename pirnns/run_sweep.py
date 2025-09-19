@@ -2,8 +2,8 @@
 """
 Parameter sweep experiment runner.
 
-Takes an experiment configuration file that defines parameter sweeps
-over a base configuration and runs all combinations with multiple seeds.
+Takes an experiment configuration file and runs all parameter combinations
+with multiple seeds for uncertainty quantification.
 """
 
 import os
@@ -20,94 +20,62 @@ from lightning.pytorch.utilities.rank_zero import rank_zero_only
 def deep_merge_dict(base: Dict, override: Dict) -> Dict:
     """Deep merge override dictionary into base dictionary."""
     result = copy.deepcopy(base)
-
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = deep_merge_dict(result[key], value)
         else:
             result[key] = copy.deepcopy(value)
-
     return result
 
 
-def load_experiment_config(experiment_file: str) -> Dict:
-    """
-    Load experiment configuration with base config and parameter sweeps.
+def load_sweep_config(sweep_file: str) -> Dict:
+    """Load sweep configuration with base config and experiments."""
+    if not os.path.exists(sweep_file):
+        raise FileNotFoundError(f"Sweep file not found: {sweep_file}")
 
-    Args:
-        experiment_file: Path to experiment YAML file
-
-    Returns:
-        Dictionary containing experiment configuration
-    """
-    if not os.path.exists(experiment_file):
-        raise FileNotFoundError(f"Experiment file not found: {experiment_file}")
-
-    with open(experiment_file, "r") as f:
-        experiment_config = yaml.safe_load(f)
+    with open(sweep_file, "r") as f:
+        sweep_config = yaml.safe_load(f)
 
     # Load base configuration
-    base_config_path = experiment_config["base_config"]
+    base_config_path = sweep_config["base_config"]
     if not os.path.exists(base_config_path):
         raise FileNotFoundError(f"Base config file not found: {base_config_path}")
 
     with open(base_config_path, "r") as f:
         base_config = yaml.safe_load(f)
 
-    experiment_config["_base_config"] = base_config
-    return experiment_config
+    sweep_config["_base_config"] = base_config
+    return sweep_config
 
 
-def generate_experiment_configs(experiment_config: Dict) -> List[Tuple[str, Dict]]:
-    """
-    Generate all individual experiment configurations from sweep.
-
-    Args:
-        experiment_config: Loaded experiment configuration
-
-    Returns:
-        List of (experiment_name, config) tuples
-    """
-    base_config = experiment_config["_base_config"]
-    experiments = experiment_config["experiments"]
+def generate_experiment_configs(sweep_config: Dict) -> List[Tuple[str, Dict]]:
+    """Generate all individual experiment configurations from sweep."""
+    base_config = sweep_config["_base_config"]
+    experiments = sweep_config["experiments"]
 
     experiment_configs = []
-
     for exp in experiments:
         exp_name = exp["name"]
         overrides = exp.get("overrides", {})
-
+        
         # Merge base config with overrides
         merged_config = deep_merge_dict(base_config, overrides)
-
         experiment_configs.append((exp_name, merged_config))
 
     return experiment_configs
 
 
 @rank_zero_only
-def create_sweep_directory(base_log_dir: str, sweep_name: str) -> str:
-    """Create sweep directory structure."""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    sweep_dir = os.path.join(base_log_dir, "sweeps", f"{sweep_name}_{timestamp}")
-
-    os.makedirs(sweep_dir, exist_ok=True)
-    return sweep_dir
-
-
-@rank_zero_only
-def save_sweep_metadata(
-    sweep_dir: str, experiment_config: Dict, experiment_configs: List[Tuple[str, Dict]]
-) -> None:
+def save_sweep_metadata(sweep_dir: str, sweep_config: Dict, experiment_configs: List[Tuple[str, Dict]]) -> None:
     """Save sweep metadata and configurations."""
-
+    
     # Save sweep metadata
     sweep_metadata = {
         "sweep_name": os.path.basename(sweep_dir),
-        "base_config_file": experiment_config["base_config"],
-        "n_seeds": experiment_config["n_seeds"],
+        "base_config_file": sweep_config["base_config"],
+        "n_seeds": sweep_config["n_seeds"],
         "n_experiments": len(experiment_configs),
-        "total_runs": len(experiment_configs) * experiment_config["n_seeds"],
+        "total_runs": len(experiment_configs) * sweep_config["n_seeds"],
         "created_at": datetime.datetime.now().isoformat(),
         "experiments": [name for name, _ in experiment_configs],
     }
@@ -128,21 +96,9 @@ def save_sweep_metadata(
     print(f"Sweep metadata saved to: {metadata_path}")
 
 
-def run_single_experiment(
-    exp_name: str, config: Dict, seeds: List[int], sweep_dir: str
-) -> List[Dict[str, Any]]:
-    """
-    Run a single experiment configuration with multiple seeds.
-
-    Args:
-        exp_name: Name of the experiment
-        config: Configuration for this experiment
-        seeds: List of seeds to run
-        sweep_dir: Base sweep directory
-
-    Returns:
-        List of run results for each seed
-    """
+def run_experiment(exp_name: str, config: Dict, seeds: List[int], sweep_dir: str) -> List[Dict[str, Any]]:
+    """Run a single experiment configuration with multiple seeds."""
+    
     print(f"\n{'='*80}")
     print(f"RUNNING EXPERIMENT: {exp_name}")
     print(f"Seeds: {seeds}")
@@ -152,18 +108,6 @@ def run_single_experiment(
     exp_dir = os.path.join(sweep_dir, exp_name)
     os.makedirs(exp_dir, exist_ok=True)
 
-    # Save experiment metadata
-    exp_metadata = {
-        "experiment_name": exp_name,
-        "seeds": seeds,
-        "n_seeds": len(seeds),
-        "created_at": datetime.datetime.now().isoformat(),
-    }
-
-    metadata_path = os.path.join(exp_dir, "experiment_metadata.yaml")
-    with open(metadata_path, "w") as f:
-        yaml.dump(exp_metadata, f, default_flow_style=False, indent=2)
-
     # Run each seed
     run_results = []
     for seed_idx, seed in enumerate(seeds):
@@ -171,12 +115,13 @@ def run_single_experiment(
         print(f"EXPERIMENT {exp_name} - SEED {seed_idx + 1}/{len(seeds)}: seed={seed}")
         print(f"{'-'*60}")
 
-        # Create seed config
+        # Create seed config for single_seed
         seed_config = config.copy()
         seed_config["seed"] = seed
-        seed_config["experiment_dir"] = exp_name  # Use experiment name as directory
+        seed_config["sweep_dir"] = sweep_dir
+        seed_config["experiment_name"] = exp_name
 
-        # Seed directory will be: sweep_dir/exp_name/seed_{seed}/
+        # The seed directory will be: sweep_dir/exp_name/seed_{seed}/
         seed_dir = os.path.join(exp_dir, f"seed_{seed}")
 
         try:
@@ -220,20 +165,14 @@ def run_single_experiment(
 
     # Generate experiment summary
     successful_runs = [r for r in run_results if r["status"] == "completed"]
-    failed_runs = [r for r in run_results if r["status"] == "failed"]
-
-    val_losses = [
-        r["final_val_loss"]
-        for r in successful_runs
-        if r.get("final_val_loss") is not None
-    ]
+    val_losses = [r["final_val_loss"] for r in successful_runs if r.get("final_val_loss") is not None]
 
     exp_summary = {
         "experiment_name": exp_name,
         "experiment_completed_at": datetime.datetime.now().isoformat(),
         "total_seeds": len(run_results),
         "successful_runs": len(successful_runs),
-        "failed_runs": len(failed_runs),
+        "failed_runs": len(run_results) - len(successful_runs),
         "success_rate": len(successful_runs) / len(run_results) if run_results else 0,
     }
 
@@ -256,36 +195,24 @@ def run_single_experiment(
     print(f"\nExperiment {exp_name} complete!")
     print(f"Successful runs: {len(successful_runs)}/{len(run_results)}")
     if val_losses:
-        print(
-            f"Validation loss: {exp_summary['validation_loss_stats']['mean']:.4f} ± {exp_summary['validation_loss_stats']['std']:.4f}"
-        )
+        print(f"Validation loss: {exp_summary['validation_loss_stats']['mean']:.4f} ± {exp_summary['validation_loss_stats']['std']:.4f}")
 
     return run_results
 
 
 @rank_zero_only
-def generate_sweep_summary(
-    sweep_dir: str, all_results: Dict[str, List[Dict[str, Any]]]
-) -> None:
+def generate_sweep_summary(sweep_dir: str, all_results: Dict[str, List[Dict[str, Any]]]) -> None:
     """Generate overall sweep summary."""
-
+    
     # Aggregate statistics across all experiments
     total_runs = sum(len(results) for results in all_results.values())
-    total_successful = sum(
-        len([r for r in results if r["status"] == "completed"])
-        for results in all_results.values()
-    )
-    total_failed = total_runs - total_successful
+    total_successful = sum(len([r for r in results if r["status"] == "completed"]) for results in all_results.values())
 
     # Per-experiment statistics
     experiment_stats = {}
     for exp_name, results in all_results.items():
         successful = [r for r in results if r["status"] == "completed"]
-        val_losses = [
-            r["final_val_loss"]
-            for r in successful
-            if r.get("final_val_loss") is not None
-        ]
+        val_losses = [r["final_val_loss"] for r in successful if r.get("final_val_loss") is not None]
 
         stats = {
             "total_runs": len(results),
@@ -311,7 +238,7 @@ def generate_sweep_summary(
         "total_experiments": len(all_results),
         "total_runs": total_runs,
         "total_successful_runs": total_successful,
-        "total_failed_runs": total_failed,
+        "total_failed_runs": total_runs - total_successful,
         "overall_success_rate": total_successful / total_runs if total_runs else 0,
         "experiment_statistics": experiment_stats,
     }
@@ -334,36 +261,26 @@ def generate_sweep_summary(
     # Print per-experiment summary
     print("\nPer-experiment results:")
     for exp_name, stats in experiment_stats.items():
-        print(
-            f"  {exp_name}: {stats['successful_runs']}/{stats['total_runs']} successful",
-            end="",
-        )
+        print(f"  {exp_name}: {stats['successful_runs']}/{stats['total_runs']} successful", end="")
         if "validation_loss_stats" in stats:
-            print(
-                f" (val_loss: {stats['validation_loss_stats']['mean']:.4f} ± {stats['validation_loss_stats']['std']:.4f})"
-            )
+            print(f" (val_loss: {stats['validation_loss_stats']['mean']:.4f} ± {stats['validation_loss_stats']['std']:.4f})")
         else:
             print()
 
 
-def run_parameter_sweep(experiment_file: str):
-    """
-    Run full parameter sweep experiment.
+def run_parameter_sweep(sweep_file: str):
+    """Run full parameter sweep experiment."""
+    print(f"Loading parameter sweep configuration: {sweep_file}")
 
-    Args:
-        experiment_file: Path to experiment configuration file
-    """
-    print(f"Loading parameter sweep configuration: {experiment_file}")
-
-    # Load experiment configuration
-    experiment_config = load_experiment_config(experiment_file)
-    n_seeds = experiment_config["n_seeds"]
+    # Load sweep configuration
+    sweep_config = load_sweep_config(sweep_file)
+    n_seeds = sweep_config["n_seeds"]
 
     # Generate individual experiment configurations
-    experiment_configs = generate_experiment_configs(experiment_config)
+    experiment_configs = generate_experiment_configs(sweep_config)
 
     print("Parameter sweep configuration:")
-    print(f"  Base config: {experiment_config['base_config']}")
+    print(f"  Base config: {sweep_config['base_config']}")
     print(f"  Number of experiments: {len(experiment_configs)}")
     print(f"  Seeds per experiment: {n_seeds}")
     print(f"  Total runs: {len(experiment_configs) * n_seeds}")
@@ -371,15 +288,15 @@ def run_parameter_sweep(experiment_file: str):
 
     # Create sweep directory
     log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
-    sweep_name = os.path.splitext(os.path.basename(experiment_file))[0]
+    sweep_name = os.path.splitext(os.path.basename(sweep_file))[0]
 
-    # Generate consistent sweep directory path across all ranks
+    # Generate consistent sweep directory path
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    sweep_dir = os.path.join(log_dir, "sweeps", f"{sweep_name}_{timestamp}")
+    sweep_dir = os.path.join(log_dir, "experiments", f"{sweep_name}_{timestamp}")
 
-    # Create directory only on rank 0
+    # Create directory and save metadata
     create_sweep_directory_only(sweep_dir)
-    save_sweep_metadata(sweep_dir, experiment_config, experiment_configs)
+    save_sweep_metadata(sweep_dir, sweep_config, experiment_configs)
 
     # Generate seeds
     seeds = list(range(n_seeds))
@@ -387,7 +304,7 @@ def run_parameter_sweep(experiment_file: str):
     # Run all experiments
     all_results = {}
     for exp_name, config in experiment_configs:
-        results = run_single_experiment(exp_name, config, seeds, sweep_dir)
+        results = run_experiment(exp_name, config, seeds, sweep_dir)
         all_results[exp_name] = results
 
     # Generate overall summary
@@ -402,16 +319,10 @@ def create_sweep_directory_only(sweep_dir: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Run parameter sweep experiment")
-    parser.add_argument(
-        "--experiment",
-        type=str,
-        required=True,
-        help="Path to experiment configuration file",
-    )
-
+    parser.add_argument("--sweep", type=str, required=True, help="Path to sweep configuration file")
     args = parser.parse_args()
 
-    run_parameter_sweep(args.experiment)
+    run_parameter_sweep(args.sweep)
 
 
 if __name__ == "__main__":
