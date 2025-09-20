@@ -1,7 +1,8 @@
 # === Project configuration ===
 project_name: "path-integration-rnn"
 model_type: "multitimescale"
-device: 'cuda:0'
+devices: [0, 1] # List of GPU IDs
+accelerator: "gpu"
 seed: 0 # Global seed
 
 # === Data (trajectory) configuration ===

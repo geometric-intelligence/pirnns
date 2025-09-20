@@ -268,6 +268,12 @@ def generate_sweep_summary(sweep_dir: str, all_results: Dict[str, List[Dict[str,
             print()
 
 
+@rank_zero_only
+def create_sweep_directory_only(sweep_dir: str) -> None:
+    """Create sweep directory structure (rank 0 only)."""
+    os.makedirs(sweep_dir, exist_ok=True)
+
+
 def run_parameter_sweep(sweep_file: str):
     """Run full parameter sweep experiment."""
     print(f"Loading parameter sweep configuration: {sweep_file}")
@@ -275,8 +281,6 @@ def run_parameter_sweep(sweep_file: str):
     # Load sweep configuration
     sweep_config = load_sweep_config(sweep_file)
     n_seeds = sweep_config["n_seeds"]
-
-    # Generate individual experiment configurations
     experiment_configs = generate_experiment_configs(sweep_config)
 
     print("Parameter sweep configuration:")
@@ -289,32 +293,23 @@ def run_parameter_sweep(sweep_file: str):
     # Create sweep directory
     log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
     sweep_name = os.path.splitext(os.path.basename(sweep_file))[0]
-
-    # Generate consistent sweep directory path
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    sweep_file_mtime = os.path.getmtime(sweep_file)
+    timestamp = datetime.datetime.fromtimestamp(sweep_file_mtime).strftime("%Y%m%d_%H%M%S")
     sweep_dir = os.path.join(log_dir, "experiments", f"{sweep_name}_{timestamp}")
 
-    # Create directory and save metadata
-    create_sweep_directory_only(sweep_dir)
-    save_sweep_metadata(sweep_dir, sweep_config, experiment_configs)
+    # Rest stays the same...
+    create_sweep_directory_only(sweep_dir)  # Already has @rank_zero_only
+    save_sweep_metadata(sweep_dir, sweep_config, experiment_configs)  # Already has @rank_zero_only
 
-    # Generate seeds
     seeds = list(range(n_seeds))
 
-    # Run all experiments
     all_results = {}
     for exp_name, config in experiment_configs:
         results = run_experiment(exp_name, config, seeds, sweep_dir)
         all_results[exp_name] = results
 
-    # Generate overall summary
-    generate_sweep_summary(sweep_dir, all_results)
-
-
-@rank_zero_only
-def create_sweep_directory_only(sweep_dir: str) -> None:
-    """Create sweep directory structure (rank 0 only)."""
-    os.makedirs(sweep_dir, exist_ok=True)
+    generate_sweep_summary(sweep_dir, all_results)  # Already has @rank_zero_only
 
 
 def main():

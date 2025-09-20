@@ -214,14 +214,17 @@ def single_seed(config: dict) -> dict:
         timescale_viz_callback = TimescaleVisualizationCallback()
         callbacks.append(timescale_viz_callback)
 
-    device_str = config["device"]
-    if device_str.startswith("cuda:"):
-        device_id = int(device_str.split(":")[1])
-        devices = [device_id]
-        accelerator = "gpu"
-    else:
-        devices = "auto"
-        accelerator = "auto"
+    # Use devices and accelerator directly from config if specified
+    devices = config.get("devices", "auto")
+    accelerator = config.get("accelerator", "auto")
+
+    # Fallback to old device parsing if not specified
+    if devices == "auto" and "device" in config:
+        device_str = config["device"]
+        if device_str.startswith("cuda:"):
+            gpu_ids = device_str.replace("cuda:", "").split(",")
+            devices = [int(gpu_id.strip()) for gpu_id in gpu_ids]
+            accelerator = "gpu"
 
     trainer = Trainer(
         logger=wandb_logger,

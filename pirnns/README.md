@@ -4,7 +4,7 @@ This project provides three ways to train models:
 
 ### 1. Single Training Run (`single_run.py`)
 
-For testing a configuration or single model training, use:
+To train a single model, use:
 
 ```bash
 # Train a vanilla RNN
@@ -31,7 +31,7 @@ python run_sweep.py --sweep experiments/timescales_sweep.yaml
 - Systematic ablation studies
 - You want to compare multiple configurations, each with multiple seeds
 
-**Output:** `logs/sweeps/{sweep_name}_{timestamp}/{config_name}/seed_{0,1,2...}/`
+**Output:** `logs/experiments/{sweep_name}_{timestamp}/{config_name}/seed_{0,1,2...}/`
 
 #### Creating Parameter Sweep Experiments
 
@@ -39,7 +39,7 @@ Create an experiment file (e.g., `experiments/timescales_sweep.yaml`):
 
 ```yaml
 # Base configuration to inherit from
-base_config: "configs/mts_config.yaml"
+base_config: "configs/mts.yaml"
 
 # Number of seeds per configuration
 n_seeds: 3
