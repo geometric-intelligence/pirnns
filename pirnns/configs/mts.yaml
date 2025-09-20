@@ -1,7 +1,8 @@
 # === Project configuration ===
 project_name: "path-integration-rnn"
 model_type: "multitimescale"
-device: 'cuda'
+devices: [0, 1] # List of GPU IDs
+accelerator: "gpu"
 seed: 0 # Global seed
 
 # === Data (trajectory) configuration ===
@@ -61,7 +62,7 @@ learning_rate: 1.0e-4
 weight_decay: 1.0e-4
 step_size: 100
 gamma: 0.5
-max_epochs: 30
+max_epochs: 100
 
 # === Callback configs ===
 decode_k: 3

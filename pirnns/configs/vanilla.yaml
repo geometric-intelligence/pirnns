@@ -1,7 +1,7 @@
 # Project configuration
 project_name: "path-integration-rnn"
 model_type: "vanilla"
-device: 'cuda'
+device: 'cuda:0'
 seed: 0 # Global seed
 
 # Data (trajectory) configuration
@@ -43,7 +43,7 @@ learning_rate: 1.0e-4
 weight_decay: 1.0e-4
 step_size: 100
 gamma: 0.5
-max_epochs: 100
+max_epochs: 5
 
 #Callback configs
 decode_k: 3
