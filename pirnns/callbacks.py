@@ -59,11 +59,17 @@ class PositionDecodingCallback(L.Callback):
         place_cell_centers: torch.Tensor,
         decode_k: int = 3,
         log_every_n_epochs: int = 1,
+        save_dir: str = None,  # Add save_dir parameter
     ):
         super().__init__()
         self.place_cell_centers = place_cell_centers
         self.decode_k = decode_k
         self.log_every_n_epochs = log_every_n_epochs
+        self.save_dir = save_dir  # Store save directory
+        
+        # Add lists to store decoding errors per epoch
+        self.position_errors_epoch: list[float] = []
+        self.epochs: list[int] = []
 
     def decode_position_from_place_cells(
         self, activation: torch.Tensor
@@ -120,6 +126,42 @@ class PositionDecodingCallback(L.Callback):
                 on_epoch=True,
                 sync_dist=True,
             )
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Save position decoding error at the end of each validation epoch."""
+        
+        if trainer.sanity_checking:
+            return
+            
+        # Only save every N epochs (same as computation)
+        if trainer.current_epoch % self.log_every_n_epochs != 0:
+            return
+
+        # Get the logged position error from trainer metrics
+        position_error = trainer.logged_metrics.get("val_position_error", None)
+        if position_error is not None:
+            self.position_errors_epoch.append(float(position_error))
+            self.epochs.append(trainer.current_epoch)
+
+        # Save to file if save_dir is provided
+        if self.save_dir is not None:
+            self._save_position_errors()
+
+    @rank_zero_only
+    def _save_position_errors(self):
+        """Save position decoding errors to JSON file."""
+        import os
+        import json
+        
+        os.makedirs(self.save_dir, exist_ok=True)
+
+        error_data = {
+            "epochs": self.epochs,
+            "position_errors_epoch": self.position_errors_epoch,
+        }
+
+        with open(os.path.join(self.save_dir, "position_decoding_errors.json"), "w") as f:
+            json.dump(error_data, f, indent=2)
 
 
 class TrajectoryVisualizationCallback(L.Callback):

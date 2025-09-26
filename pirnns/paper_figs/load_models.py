@@ -69,6 +69,15 @@ def load_experiment_sweep(
                         training_data = json.load(f)
                 else:
                     print(f"  ⚠ No training_losses.json found for {experiment_name}/seed_{seed}")
+
+                # Load decoding errors
+                decoding_errors_path = os.path.join(seed_dir, "position_decoding_errors.json")
+                decoding_errors = None
+                if os.path.exists(decoding_errors_path):
+                    with open(decoding_errors_path, "r") as f:
+                        decoding_errors = json.load(f)
+                else:
+                    print(f"  ⚠ No position_decoding_errors.json found for {experiment_name}/seed_{seed}")
                 
                 if use_lightning_checkpoint:
                     checkpoint_dir = os.path.join(seed_dir, "checkpoints")
@@ -146,7 +155,8 @@ def load_experiment_sweep(
                     'model': model,
                     'config': config,
                     'final_val_loss': next(run['final_val_loss'] for run in exp_summary['run_details'] if run['seed'] == seed),
-                    'training_losses': training_losses_dict
+                    'training_losses': training_losses_dict,
+                    'position_decoding_errors': decoding_errors,
                 }
                 
                 print(f"  ✓ Loaded {experiment_name}/seed_{seed}")

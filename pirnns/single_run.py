@@ -193,6 +193,7 @@ def single_seed(config: dict) -> dict:
         place_cell_centers=datamodule.place_cell_centers,
         decode_k=config["decode_k"],
         log_every_n_epochs=config["log_every_n_epochs"],
+        save_dir=run_dir,
     )
 
     trajectory_viz_callback = TrajectoryVisualizationCallback(
