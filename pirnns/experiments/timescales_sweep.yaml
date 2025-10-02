@@ -2,21 +2,22 @@
 base_config: "configs/mts.yaml"
 
 # Number of seeds per configuration
-n_seeds: 1
+n_seeds: 4
 
 # Parameter sweep configurations
 experiments:
-  - name: "discrete_single_025"
-    overrides:
-      timescales_config:
-        type: "discrete"
-        values: [0.3476] # 0.25 alpha
+  # - name: "discrete_single_025"
+  #   overrides:
+  #     timescales_config:
+  #       type: "discrete"
+  #       values: [0.3476] # 0.25 alpha
 
   - name: "discrete_single_05"
     overrides:
       timescales_config:
         type: "discrete"
         values: [0.1443] # 0.5 alpha
+      
 
   - name: "discrete_single_075"
     overrides:
@@ -43,14 +44,14 @@ experiments:
         type: "discrete"
         values: [0.3476, 0.1443, 0.0721, 0.0001] # alpha [0.25, 0.5, 0.75, 1.0]
   
-  - name: "continuous_powerlaw_20"
-    overrides:
-      timescales_config:
-        type: "continuous"
-        distribution: "powerlaw"
-        exponent: 2
-        min_timescale: 0.0434
-        max_timescale: 0.9
+  # - name: "continuous_powerlaw_20"
+  #   overrides:
+  #     timescales_config:
+  #       type: "continuous"
+  #       distribution: "powerlaw"
+  #       exponent: 2
+  #       min_timescale: 0.0434
+  #       max_timescale: 0.9
 
   - name: "continuous_powerlaw_15"
     overrides:

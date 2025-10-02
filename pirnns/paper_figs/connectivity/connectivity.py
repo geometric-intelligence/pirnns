@@ -3,13 +3,13 @@ import matplotlib.pyplot as plt
 
 
 def get_timescale_groups(
-    model, 
-    group_method="discrete", # or "binned"
+    model,
+    group_method="discrete",  # or "binned"
     n_groups=None,
 ):
     """
     Extract timescale groups and create group assignments.
-    
+
     Args:
         model: The neural network model
         n_groups: Number of groups to create (for continuous distributions)
@@ -17,48 +17,56 @@ def get_timescale_groups(
     """
     W_rec = model.rnn_step.W_rec.weight.detach().cpu().numpy()
     timescales = model.rnn_step.timescales.cpu().numpy()
-    
+
     if group_method == "discrete":
         # Original behavior: use unique timescale values
         unique_timescales = np.unique(timescales)
         n_groups_actual = len(unique_timescales)
-        
+
         if n_groups_actual > 20:  # Probably continuous, warn user
-            print(f"Warning: Found {n_groups_actual} unique timescales. Consider using group_method='binned'")
-        
+            print(
+                f"Warning: Found {n_groups_actual} unique timescales. Consider using group_method='binned'"
+            )
+
         print(f"Found {n_groups_actual} discrete timescale groups:")
         for i, ts in enumerate(unique_timescales):
             count = np.sum(timescales == ts)
-            print(f"  Group {i}: τ={ts:.4f}, {count} neurons ({count/len(timescales)*100:.1f}%)")
-        
+            print(
+                f"  Group {i}: τ={ts:.4f}, {count} neurons ({count/len(timescales)*100:.1f}%)"
+            )
+
         # Create group assignment for each neuron
         group_assignment = np.zeros(len(timescales), dtype=int)
         for i, ts in enumerate(unique_timescales):
             group_assignment[timescales == ts] = i
-            
+
     elif group_method == "binned":
         # Bin continuous timescales into groups
         if n_groups is None:
             n_groups = 4  # Default to 4 groups
-            
+
         # Create bins based on timescale range
         min_ts, max_ts = timescales.min(), timescales.max()
-        
+
         # Option 1: Linear binning
         # bin_edges = np.linspace(min_ts, max_ts, n_groups + 1)
-        
+
         # Option 2: Log-space binning (better for power-law distributions)
         if min_ts <= 0:
             # Add small offset if min is zero or negative
             min_ts_safe = max(min_ts, 1e-6)
-            bin_edges = np.logspace(np.log10(min_ts_safe), np.log10(max_ts), n_groups + 1)
+            bin_edges = np.logspace(
+                np.log10(min_ts_safe), np.log10(max_ts), n_groups + 1
+            )
         else:
             bin_edges = np.logspace(np.log10(min_ts), np.log10(max_ts), n_groups + 1)
-        
+
         # Assign each neuron to a bin
         group_assignment = np.digitize(timescales, bin_edges) - 1
-        group_assignment = np.clip(group_assignment, 0, n_groups - 1)  # Handle edge cases
-        
+        group_assignment = np.clip(
+            group_assignment, 0, n_groups - 1
+        )  # Handle edge cases
+
         # Compute representative timescales for each group (group means)
         unique_timescales = np.zeros(n_groups)
         for i in range(n_groups):
@@ -67,8 +75,8 @@ def get_timescale_groups(
                 unique_timescales[i] = np.mean(timescales[mask])
             else:
                 # Empty group, use bin center
-                unique_timescales[i] = (bin_edges[i] + bin_edges[i+1]) / 2
-        
+                unique_timescales[i] = (bin_edges[i] + bin_edges[i + 1]) / 2
+
         print(f"Binned {len(timescales)} neurons into {n_groups} groups:")
         print(f"Timescale range: [{min_ts:.4f}, {max_ts:.4f}]")
         for i in range(n_groups):
@@ -76,18 +84,22 @@ def get_timescale_groups(
             count = mask.sum()
             ts_range = f"[{bin_edges[i]:.4f}, {bin_edges[i+1]:.4f}]"
             mean_ts = unique_timescales[i]
-            print(f"  Group {i}: τ_mean={mean_ts:.4f}, range={ts_range}, {count} neurons ({count/len(timescales)*100:.1f}%)")
-    
+            print(
+                f"  Group {i}: τ_mean={mean_ts:.4f}, range={ts_range}, {count} neurons ({count/len(timescales)*100:.1f}%)"
+            )
+
     else:
-        raise ValueError(f"Unknown group_method: {group_method}. Use 'discrete' or 'binned'")
-    
+        raise ValueError(
+            f"Unknown group_method: {group_method}. Use 'discrete' or 'binned'"
+        )
+
     return W_rec, timescales, unique_timescales, group_assignment
 
 
 def plot_group_connectivity_magnitude_stats(
-    W_rec, 
-    group_assignment, 
-    unique_timescales, 
+    W_rec,
+    group_assignment,
+    unique_timescales,
     figsize=(10, 6),
     save_fig=False,
     save_fig_name=None,
@@ -138,7 +150,7 @@ def plot_group_connectivity_magnitude_stats(
         incoming_mag.append(np.mean(group_abs_connectivity[mask, j]))
 
     # Plot bars
-    bars1 = ax.bar(
+    ax.bar(
         x_pos - width,
         self_conn_mag,
         width,
@@ -148,7 +160,7 @@ def plot_group_connectivity_magnitude_stats(
         edgecolor="black",
         linewidth=0.5,
     )
-    bars2 = ax.bar(
+    ax.bar(
         x_pos,
         outgoing_mag,
         width,
@@ -158,7 +170,7 @@ def plot_group_connectivity_magnitude_stats(
         edgecolor="black",
         linewidth=0.5,
     )
-    bars3 = ax.bar(
+    ax.bar(
         x_pos + width,
         incoming_mag,
         width,
@@ -208,15 +220,15 @@ def plot_group_connectivity_magnitude_stats(
     # Print detailed statistics
     print("Magnitude-based connectivity statistics:")
     print("\nSelf-connections |magnitude|:")
-    for i, (ts, mag) in enumerate(zip(unique_timescales, self_conn_mag)):
+    for i, (ts, mag) in enumerate(zip(unique_timescales, self_conn_mag, strict=False)):
         print(f"  Group {i} (τ={ts:.4f}): {mag:.6f}")
 
     print("\nOutgoing connections |magnitude|:")
-    for i, (ts, mag) in enumerate(zip(unique_timescales, outgoing_mag)):
+    for i, (ts, mag) in enumerate(zip(unique_timescales, outgoing_mag, strict=False)):
         print(f"  Group {i} (τ={ts:.4f}): {mag:.6f}")
 
     print("\nIncoming connections |magnitude|:")
-    for i, (ts, mag) in enumerate(zip(unique_timescales, incoming_mag)):
+    for i, (ts, mag) in enumerate(zip(unique_timescales, incoming_mag, strict=False)):
         print(f"  Group {i} (τ={ts:.4f}): {mag:.6f}")
 
     # Compute ratios for additional insights
@@ -243,10 +255,10 @@ def plot_group_connectivity_magnitude_stats(
 
 
 def plot_group_bipartite_with_asymmetry(
-    W_rec, 
-    group_assignment, 
-    unique_timescales, 
-    timescales, 
+    W_rec,
+    group_assignment,
+    unique_timescales,
+    timescales,
     figsize=(12, 10),
     save_fig=False,
     save_fig_name=None,
@@ -285,8 +297,9 @@ def plot_group_bipartite_with_asymmetry(
     print(f"Connection magnitude range: [{min_abs_weight:.1e}, {max_abs_weight:.1e}]")
 
     # Create figure with space for external legend
-    fig, (ax, legend_ax) = plt.subplots(1, 2, figsize=figsize, 
-                                       gridspec_kw={'width_ratios': [4, 1]})
+    fig, (ax, legend_ax) = plt.subplots(
+        1, 2, figsize=figsize, gridspec_kw={"width_ratios": [4, 1]}
+    )
 
     # Layout: presynaptic on left, postsynaptic on right
     pre_y = np.linspace(0.1, 0.9, n_groups)
@@ -367,8 +380,7 @@ def plot_group_bipartite_with_asymmetry(
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_title(
-        "Group-to-Group Connectivity\n"
-        + "Thickness ∝ Mean |Weight|",
+        "Group-to-Group Connectivity\n" + "Thickness ∝ Mean |Weight|",
         fontsize=14,
         pad=20,
     )
@@ -379,19 +391,19 @@ def plot_group_bipartite_with_asymmetry(
     # Create legend in separate subplot
     legend_ax.set_xlim(0, 1)
     legend_ax.set_ylim(0, 1)
-    legend_ax.axis('off')  # Remove axes
+    legend_ax.axis("off")  # Remove axes
 
     # Add thickness legend in the legend subplot
     thicknesses = [1, 3, 6, 9]  # Example thicknesses
     legend_y_start = 0.7
-    
+
     # Title for legend
     legend_ax.text(0.1, 0.85, "Line Thickness", fontsize=12, weight="bold")
     legend_ax.text(0.1, 0.8, "Mean |Weight|", fontsize=10)
-    
+
     for i, thick in enumerate(thicknesses):
         y_pos = legend_y_start - i * 0.1
-        
+
         # Draw example line
         legend_ax.plot(
             [0.1, 0.4],
@@ -400,7 +412,7 @@ def plot_group_bipartite_with_asymmetry(
             linewidth=thick,
             alpha=0.8,
         )
-        
+
         # Convert thickness back to weight for label
         weight = (thick - 1) / 8 * max_abs_weight
         legend_ax.text(
@@ -429,15 +441,15 @@ def plot_group_bipartite_with_asymmetry(
 
 
 def plot_group_connectivity_distributions(
-    W_rec, 
-    group_assignment, 
-    unique_timescales, 
-    figsize=(15, 12), 
-    bins=50, 
-    common_ylim=False, 
-    paper_ready=False, 
+    W_rec,
+    group_assignment,
+    unique_timescales,
+    figsize=(15, 12),
+    bins=50,
+    common_ylim=False,
+    paper_ready=False,
     save_fig=False,
-    save_fig_name="connectivity.png"
+    save_fig_name="connectivity.png",
 ):
     """
     Plot histograms of raw connectivity weight distributions for all group-to-group connections.
@@ -496,9 +508,11 @@ def plot_group_connectivity_distributions(
             for post_group in range(n_groups):
                 if (post_group, pre_group) in group_weights:
                     weights = group_weights[(post_group, pre_group)]
-                    counts, _ = np.histogram(weights, bins=bins, range=common_xlim, density=True)
+                    counts, _ = np.histogram(
+                        weights, bins=bins, range=common_xlim, density=True
+                    )
                     max_density = max(max_density, counts.max())
-        
+
         common_ylim_range = (0, max_density * 1.05)  # Add 5% padding
         if not paper_ready:
             print(f"Common y-limits: [0, {max_density:.2f}]")
@@ -510,7 +524,7 @@ def plot_group_connectivity_distributions(
     global_min, global_max = all_weights.min(), all_weights.max()
 
     if not paper_ready:
-        print(f"Global weight statistics:")
+        print("Global weight statistics:")
         print(f"  Mean: {global_mean:.6f}")
         print(f"  Std: {global_std:.6f}")
         print(f"  Range: [{global_min:.6f}, {global_max:.6f}]")
@@ -533,7 +547,7 @@ def plot_group_connectivity_distributions(
                     bins=bins,
                     alpha=0.8 if paper_ready else 0.7,
                     density=True,
-                    edgecolor="black", #if not paper_ready else "none",
+                    edgecolor="black",  # if not paper_ready else "none",
                     linewidth=edge_width,
                     range=common_xlim,
                 )
@@ -558,15 +572,15 @@ def plot_group_connectivity_distributions(
 
                 # Add vertical lines (simplified for paper)
                 if paper_ready:
-                    #ax.axvline(mean_weight, color="black", linestyle="--", linewidth=1.5, alpha=0.9)
+                    # ax.axvline(mean_weight, color="black", linestyle="--", linewidth=1.5, alpha=0.9)
                     ax.axvline(0, color="black", linestyle="-", linewidth=2, alpha=0.7)
                 else:
-                    #ax.axvline(mean_weight, color="black", linestyle="--", linewidth=2, alpha=0.8)
+                    # ax.axvline(mean_weight, color="black", linestyle="--", linewidth=2, alpha=0.8)
                     ax.axvline(0, color="black", linestyle="-", linewidth=2, alpha=0.7)
 
                 # Set common x-limits
                 ax.set_xlim(common_xlim)
-                
+
                 # Set common y-limits if requested
                 if common_ylim:
                     ax.set_ylim(common_ylim_range)
@@ -580,7 +594,9 @@ def plot_group_connectivity_distributions(
 
                 # Add text box with statistics (only for non-paper version)
                 if not paper_ready:
-                    stats_text = f"n={n_connections:,}\nμ={mean_weight:.1e}\nσ={std_weight:.1e}"
+                    stats_text = (
+                        f"n={n_connections:,}\nμ={mean_weight:.1e}\nσ={std_weight:.1e}"
+                    )
                     ax.text(
                         0.02,
                         0.98,
@@ -602,18 +618,33 @@ def plot_group_connectivity_distributions(
                 if paper_ready:
                     ax.tick_params(labelsize=8)
                     # Reduce number of ticks and make them smaller
-                    ax.locator_params(axis='x', nbins=3)
-                    ax.locator_params(axis='y', nbins=3)
+                    ax.locator_params(axis="x", nbins=3)
+                    ax.locator_params(axis="y", nbins=3)
 
             else:
                 # No connections for this group pair
                 if paper_ready:
-                    ax.text(0.5, 0.5, "—", ha="center", va="center", 
-                           transform=ax.transAxes, fontsize=16, color="gray")
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "—",
+                        ha="center",
+                        va="center",
+                        transform=ax.transAxes,
+                        fontsize=16,
+                        color="gray",
+                    )
                 else:
-                    ax.text(0.5, 0.5, "No\nconnections", ha="center", va="center", 
-                           transform=ax.transAxes, fontsize=12)
-                
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "No\nconnections",
+                        ha="center",
+                        va="center",
+                        transform=ax.transAxes,
+                        fontsize=12,
+                    )
+
                 ax.set_xlim(common_xlim)
                 if common_ylim:
                     ax.set_ylim(common_ylim_range)
@@ -635,8 +666,9 @@ def plot_group_connectivity_distributions(
 
     if paper_ready:
         # Eliminate all spacing between subplots
-        plt.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, 
-                           wspace=0.0, hspace=0.0)
+        plt.subplots_adjust(
+            left=0.05, bottom=0.05, right=0.95, top=0.95, wspace=0.0, hspace=0.0
+        )
     else:
         plt.tight_layout()
         plt.subplots_adjust(top=0.90)

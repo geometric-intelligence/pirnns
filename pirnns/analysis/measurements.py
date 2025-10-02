@@ -8,7 +8,6 @@ and return a single value.
 import torch
 from abc import ABC, abstractmethod
 import lightning as L
-from torch.utils.data import DataLoader
 
 from pirnns.rnns.rnn import RNN
 from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN
@@ -17,36 +16,36 @@ from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN
 class Measurement(ABC):
     """
     Abstract base class for all measurements.
-    
+
     A measurement computes a single value from a given model and dataset.
     """
 
     def __init__(
-        self, 
+        self,
         config: dict,
         **kwargs,
     ) -> None:
         """
         Initialize the measurement.
-        
+
         Args:
             config: Configuration dictionary containing measurement parameters
         """
         self.config = config
-    
+
     @abstractmethod
     def compute(
-        self, 
-        model: torch.nn.Module, 
-        datamodule: L.LightningDataModule, 
+        self,
+        model: torch.nn.Module,
+        datamodule: L.LightningDataModule,
     ) -> float:
         """
         Compute the measurement for a given model and dataset (datamodule).
-        
+
         Args:
             model: model to evaluate (PyTorch module)
-            datamodule: DataModule with test data 
-            
+            datamodule: DataModule with test data
+
         Returns:
             Single float value representing the computed metric
         """
@@ -56,18 +55,18 @@ class Measurement(ABC):
 class PositionDecodingMeasurement(Measurement):
     """
     Measures position decoding error using top-k place cell activations.
-    
+
     This measurement computes how well positions can be decoded from the model's
     place cell outputs using a top-k averaging method.
     """
-    
+
     def __init__(
-        self, 
+        self,
         config: dict,
     ) -> None:
         """
         Initialize the position decoding measurement.
-        
+
         Args:
             place_cell_centers: Tensor of shape [num_place_cells, 2] containing
                               the 2D positions of place cell centers
@@ -75,20 +74,20 @@ class PositionDecodingMeasurement(Measurement):
         """
         super().__init__(config)
         self.decode_k = config["decode_k"]
-    
+
     def decode_position_from_place_cells(
-        self, 
+        self,
         activation: torch.Tensor,
         place_cell_centers: torch.Tensor,
     ) -> torch.Tensor:
         """
         Decode position from place cell activations using top-k method.
         (Standard; see https://github.com/ganguli-lab/grid-pattern-formation/blob/401dd6b5e20a754267b16eeb5bd88239b9af33e9/place_cells.py#L66)
-        
+
         Args:
             activation: Place cell activations [batch, time, num_place_cells]
             place_cell_centers: Place cell center positions [num_place_cells, 2]
-            
+
         Returns:
             Decoded positions [batch, time, 2]
         """
@@ -96,26 +95,26 @@ class PositionDecodingMeasurement(Measurement):
         _, idxs = torch.topk(activation, k=self.decode_k, dim=-1)  # [B, T, k]
         pred_pos = centers[idxs].mean(-2)  # [B, T, 2]
         return pred_pos
-    
+
     def compute(
-        self, 
-        model: torch.nn.Module, 
-        datamodule: L.LightningDataModule, 
+        self,
+        model: torch.nn.Module,
+        datamodule: L.LightningDataModule,
     ) -> float:
         """
         Compute position decoding error.
-        
+
         Args:
             model: Trained model to evaluate
             datamodule: DataModule containing test trajectories
-            
+
         Returns:
             Mean L2 position decoding error in meters
         """
         model.eval()
         total_error = 0.0
         total_samples = 0
-        
+
         # Get device from model
         model_device = next(model.parameters()).device
         dataloader = datamodule.val_dataloader()
@@ -124,21 +123,23 @@ class PositionDecodingMeasurement(Measurement):
         with torch.no_grad():
             for batch in dataloader:
                 inputs, target_positions, target_place_cells = batch
-                
-                inputs = inputs.to(model_device) # [B, T, 2]
-                target_positions = target_positions.to(model_device) # [B, T, 2]
-                target_place_cells = target_place_cells.to(model_device) # [B, T, num_place_cells]
+
+                inputs = inputs.to(model_device)  # [B, T, 2]
+                target_positions = target_positions.to(model_device)  # [B, T, 2]
+                target_place_cells = target_place_cells.to(
+                    model_device
+                )  # [B, T, num_place_cells]
 
                 assert isinstance(model, (RNN, MultiTimescaleRNN)), "Unknown model type"
-                
+
                 _, outputs = model(
-                    inputs=inputs, 
+                    inputs=inputs,
                     place_cells_0=target_place_cells[:, 0, :],
                 )
 
                 place_cell_probs = torch.softmax(outputs, dim=-1)
                 predicted_positions = self.decode_position_from_place_cells(
-                    place_cell_probs, 
+                    place_cell_probs,
                     place_cell_centers,
                 )
 

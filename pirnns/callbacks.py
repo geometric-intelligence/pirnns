@@ -3,12 +3,12 @@ import json
 import os
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
 import torch
-from typing import Any
 import matplotlib.pyplot as plt
 import wandb
 import numpy as np
 from pirnns.rnns.rnn import RNN
 from pirnns.rnns.multitimescale_rnn import MultiTimescaleRNN
+from pirnns.analysis.measurements import PositionDecodingMeasurement
 
 
 class LossLoggerCallback(L.Callback):
@@ -56,103 +56,53 @@ class PositionDecodingCallback(L.Callback):
 
     def __init__(
         self,
-        place_cell_centers: torch.Tensor,
-        decode_k: int = 3,
+        measurement: PositionDecodingMeasurement,
+        datamodule: L.LightningDataModule,
         log_every_n_epochs: int = 1,
         save_dir: str = None,  # Add save_dir parameter
     ):
         super().__init__()
-        self.place_cell_centers = place_cell_centers
-        self.decode_k = decode_k
+        self.measurement = measurement
+        self.datamodule = datamodule
         self.log_every_n_epochs = log_every_n_epochs
-        self.save_dir = save_dir  # Store save directory
-        
-        # Add lists to store decoding errors per epoch
+        self.save_dir = save_dir
+
         self.position_errors_epoch: list[float] = []
         self.epochs: list[int] = []
 
-    def decode_position_from_place_cells(
-        self, activation: torch.Tensor
-    ) -> torch.Tensor:
-        """Decode position from place cell activations using top-k method."""
-        # Move centers to same device as activation
-        centers = self.place_cell_centers.to(activation.device)
-        _, idxs = torch.topk(activation, k=self.decode_k, dim=-1)  # [B, T, k]
-        pred_pos = centers[idxs].mean(-2)  # [B, T, 2]
-        return pred_pos
-
-    def on_validation_batch_end(
+    def on_validation_epoch_end(
         self,
         trainer: L.Trainer,
         pl_module: L.LightningModule,
-        outputs: Any,
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int = 0,
     ) -> None:
-        """Compute position decoding error for each validation batch."""
+        """Compute position decoding error at the end of each validation epoch."""
 
-        # Only run every N epochs to reduce computation
-        if trainer.current_epoch % self.log_every_n_epochs != 0:
-            return
-
-        inputs, target_positions, target_place_cells = batch
-
-        # Get model outputs
-        with torch.no_grad():
-            if isinstance(pl_module.model, RNN):
-                _, outputs = pl_module.model(
-                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-                )
-            elif isinstance(pl_module.model, MultiTimescaleRNN):
-                _, outputs = pl_module.model(
-                    inputs=inputs, place_cells_0=target_place_cells[:, 0, :]
-                )
-
-            # Convert to probabilities and decode positions
-            place_cell_probs = torch.softmax(outputs, dim=-1)
-            predicted_positions = self.decode_position_from_place_cells(
-                place_cell_probs
-            )
-            position_error = torch.sqrt(
-                ((target_positions - predicted_positions) ** 2).sum(-1)
-            ).mean()
-
-            # Log the error
-            pl_module.log(
-                "val_position_error",
-                position_error,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=True,
-            )
-
-    def on_validation_epoch_end(self, trainer, pl_module):
-        """Save position decoding error at the end of each validation epoch."""
-        
         if trainer.sanity_checking:
             return
-            
-        # Only save every N epochs (same as computation)
+
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
-        # Get the logged position error from trainer metrics
-        position_error = trainer.logged_metrics.get("val_position_error", None)
-        if position_error is not None:
-            self.position_errors_epoch.append(float(position_error))
-            self.epochs.append(trainer.current_epoch)
+        position_error = self.measurement.compute(pl_module.model, self.datamodule)
 
-        # Save to file if save_dir is provided
+        pl_module.log(
+            "val_position_error",
+            position_error,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+        self.position_errors_epoch.append(position_error)
+        self.epochs.append(trainer.current_epoch)
+
         if self.save_dir is not None:
             self._save_position_errors()
 
     @rank_zero_only
     def _save_position_errors(self):
         """Save position decoding errors to JSON file."""
-        import os
-        import json
-        
+
         os.makedirs(self.save_dir, exist_ok=True)
 
         error_data = {
@@ -160,7 +110,9 @@ class PositionDecodingCallback(L.Callback):
             "position_errors_epoch": self.position_errors_epoch,
         }
 
-        with open(os.path.join(self.save_dir, "position_decoding_errors.json"), "w") as f:
+        with open(
+            os.path.join(self.save_dir, "position_decoding_errors.json"), "w"
+        ) as f:
             json.dump(error_data, f, indent=2)
 
 
