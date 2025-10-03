@@ -32,7 +32,7 @@ class Analysis(ABC):
     Abstract base class for all analyses.
 
     An analysis varies test conditions and applies a measurement to each.
-    
+
     Note: Analysis instances are tied to a specific config and place_cell_centers,
     so in a sweep context, create fresh instances for each seed.
     """
