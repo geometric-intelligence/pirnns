@@ -209,37 +209,3 @@ class NoiseRobustnessAnalysis(Analysis):
         """Run noise robustness analysis."""
         # TODO: Implement noise injection and measurement
         raise NotImplementedError("NoiseRobustnessAnalysis not yet implemented")
-
-
-class ArenaScalingAnalysis(Analysis):
-    """
-    Arena scaling analysis (placeholder for future implementation).
-
-    Tests model performance on different arena sizes.
-    """
-
-    def __init__(
-        self,
-        config: dict,
-        place_cell_centers: torch.Tensor,
-        arena_sizes: list[float],
-    ):
-        """
-        Initialize arena scaling analysis.
-
-        Args:
-            config: Base configuration
-            place_cell_centers: Place cell centers from training
-            arena_sizes: List of arena sizes to test
-        """
-        super().__init__(config, place_cell_centers)
-        self.arena_sizes = arena_sizes
-
-    def run(
-        self,
-        model: torch.nn.Module,
-        measurement: Measurement,
-    ) -> AnalysisResult:
-        """Run arena scaling analysis."""
-        # TODO: Implement arena scaling and measurement
-        raise NotImplementedError("ArenaScalingAnalysis not yet implemented")

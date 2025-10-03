@@ -6,7 +6,7 @@ The evaluator applies an analysis+measurement to all models and aggregates resul
 """
 
 import numpy as np
-from typing import Any, Union, Type
+from typing import Any
 from dataclasses import dataclass, field
 
 from .analyses import Analysis, AnalysisResult
@@ -22,7 +22,7 @@ class ExperimentResult:
     condition_name: str  # e.g., "trajectory_length"
     
     # Per-seed results
-    seed_results: dict[Union[int, str], list[float]]  # {seed: [measurements]}
+    seed_results: dict[int | str, list[float]]  # {seed: [measurements]}
     
     # Aggregated statistics
     mean_measurements: list[float]  # Mean across seeds for each condition
@@ -74,9 +74,9 @@ class SweepEvaluator:
     
     def __init__(
         self,
-        analysis_class: Type[Analysis],
+        analysis_class: type[Analysis],
         analysis_params: dict[str, Any],
-        measurement_class: Type[Measurement],
+        measurement_class: type[Measurement],
         measurement_params: dict[str, Any] | None = None,
         verbose: bool = True,
     ):
@@ -99,7 +99,7 @@ class SweepEvaluator:
     
     def evaluate(
         self,
-        sweep: dict[str, dict[Union[int, str], dict[str, Any]]],
+        sweep: dict[str, dict[int | str, dict[str, Any]]],
     ) -> SweepResult:
         """
         Evaluate the entire sweep.
@@ -135,7 +135,7 @@ class SweepEvaluator:
     def _evaluate_experiment(
         self,
         exp_name: str,
-        seeds: dict[Union[int, str], dict[str, Any]],
+        seeds: dict[int | str, dict[str, Any]],
     ) -> ExperimentResult:
         """
         Evaluate a single experiment across all its seeds.
