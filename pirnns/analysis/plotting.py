@@ -118,7 +118,7 @@ def plot_training_curves_sweep(
         all_curves = []
         epochs = None
 
-        for seed_key, seed_data in seeds.items():
+        for _, seed_data in seeds.items():
             # Navigate nested structure based on metric
             if metric == "train_loss":
                 if (

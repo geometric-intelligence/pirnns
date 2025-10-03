@@ -22,6 +22,7 @@ class Measurement(ABC):
     not model-specific config (which varies per seed in a sweep).
     """
 
+    @abstractmethod
     def __init__(self, **kwargs) -> None:
         """
         Initialize the measurement.
