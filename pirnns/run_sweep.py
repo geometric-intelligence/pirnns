@@ -57,7 +57,7 @@ def generate_experiment_configs(sweep_config: Dict) -> List[Tuple[str, Dict]]:
     for exp in experiments:
         exp_name = exp["name"]
         overrides = exp.get("overrides", {})
-        
+
         # Merge base config with overrides
         merged_config = deep_merge_dict(base_config, overrides)
         experiment_configs.append((exp_name, merged_config))
@@ -66,9 +66,11 @@ def generate_experiment_configs(sweep_config: Dict) -> List[Tuple[str, Dict]]:
 
 
 @rank_zero_only
-def save_sweep_metadata(sweep_dir: str, sweep_config: Dict, experiment_configs: List[Tuple[str, Dict]]) -> None:
+def save_sweep_metadata(
+    sweep_dir: str, sweep_config: Dict, experiment_configs: List[Tuple[str, Dict]]
+) -> None:
     """Save sweep metadata and configurations."""
-    
+
     # Save sweep metadata
     sweep_metadata = {
         "sweep_name": os.path.basename(sweep_dir),
@@ -96,9 +98,11 @@ def save_sweep_metadata(sweep_dir: str, sweep_config: Dict, experiment_configs: 
     print(f"Sweep metadata saved to: {metadata_path}")
 
 
-def run_experiment(exp_name: str, config: Dict, seeds: List[int], sweep_dir: str) -> List[Dict[str, Any]]:
+def run_experiment(
+    exp_name: str, config: Dict, seeds: List[int], sweep_dir: str
+) -> List[Dict[str, Any]]:
     """Run a single experiment configuration with multiple seeds."""
-    
+
     print(f"\n{'='*80}")
     print(f"RUNNING EXPERIMENT: {exp_name}")
     print(f"Seeds: {seeds}")
@@ -165,7 +169,11 @@ def run_experiment(exp_name: str, config: Dict, seeds: List[int], sweep_dir: str
 
     # Generate experiment summary
     successful_runs = [r for r in run_results if r["status"] == "completed"]
-    val_losses = [r["final_val_loss"] for r in successful_runs if r.get("final_val_loss") is not None]
+    val_losses = [
+        r["final_val_loss"]
+        for r in successful_runs
+        if r.get("final_val_loss") is not None
+    ]
 
     exp_summary = {
         "experiment_name": exp_name,
@@ -195,24 +203,35 @@ def run_experiment(exp_name: str, config: Dict, seeds: List[int], sweep_dir: str
     print(f"\nExperiment {exp_name} complete!")
     print(f"Successful runs: {len(successful_runs)}/{len(run_results)}")
     if val_losses:
-        print(f"Validation loss: {exp_summary['validation_loss_stats']['mean']:.4f} ± {exp_summary['validation_loss_stats']['std']:.4f}")
+        print(
+            f"Validation loss: {exp_summary['validation_loss_stats']['mean']:.4f} ± {exp_summary['validation_loss_stats']['std']:.4f}"
+        )
 
     return run_results
 
 
 @rank_zero_only
-def generate_sweep_summary(sweep_dir: str, all_results: Dict[str, List[Dict[str, Any]]]) -> None:
+def generate_sweep_summary(
+    sweep_dir: str, all_results: Dict[str, List[Dict[str, Any]]]
+) -> None:
     """Generate overall sweep summary."""
-    
+
     # Aggregate statistics across all experiments
     total_runs = sum(len(results) for results in all_results.values())
-    total_successful = sum(len([r for r in results if r["status"] == "completed"]) for results in all_results.values())
+    total_successful = sum(
+        len([r for r in results if r["status"] == "completed"])
+        for results in all_results.values()
+    )
 
     # Per-experiment statistics
     experiment_stats = {}
     for exp_name, results in all_results.items():
         successful = [r for r in results if r["status"] == "completed"]
-        val_losses = [r["final_val_loss"] for r in successful if r.get("final_val_loss") is not None]
+        val_losses = [
+            r["final_val_loss"]
+            for r in successful
+            if r.get("final_val_loss") is not None
+        ]
 
         stats = {
             "total_runs": len(results),
@@ -261,9 +280,14 @@ def generate_sweep_summary(sweep_dir: str, all_results: Dict[str, List[Dict[str,
     # Print per-experiment summary
     print("\nPer-experiment results:")
     for exp_name, stats in experiment_stats.items():
-        print(f"  {exp_name}: {stats['successful_runs']}/{stats['total_runs']} successful", end="")
+        print(
+            f"  {exp_name}: {stats['successful_runs']}/{stats['total_runs']} successful",
+            end="",
+        )
         if "validation_loss_stats" in stats:
-            print(f" (val_loss: {stats['validation_loss_stats']['mean']:.4f} ± {stats['validation_loss_stats']['std']:.4f})")
+            print(
+                f" (val_loss: {stats['validation_loss_stats']['mean']:.4f} ± {stats['validation_loss_stats']['std']:.4f})"
+            )
         else:
             print()
 
@@ -293,14 +317,18 @@ def run_parameter_sweep(sweep_file: str):
     # Create sweep directory
     log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
     sweep_name = os.path.splitext(os.path.basename(sweep_file))[0]
-    
+
     sweep_file_mtime = os.path.getmtime(sweep_file)
-    timestamp = datetime.datetime.fromtimestamp(sweep_file_mtime).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.fromtimestamp(sweep_file_mtime).strftime(
+        "%Y%m%d_%H%M%S"
+    )
     sweep_dir = os.path.join(log_dir, "experiments", f"{sweep_name}_{timestamp}")
 
     # Rest stays the same...
     create_sweep_directory_only(sweep_dir)  # Already has @rank_zero_only
-    save_sweep_metadata(sweep_dir, sweep_config, experiment_configs)  # Already has @rank_zero_only
+    save_sweep_metadata(
+        sweep_dir, sweep_config, experiment_configs
+    )  # Already has @rank_zero_only
 
     seeds = list(range(n_seeds))
 
@@ -314,7 +342,9 @@ def run_parameter_sweep(sweep_file: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Run parameter sweep experiment")
-    parser.add_argument("--sweep", type=str, required=True, help="Path to sweep configuration file")
+    parser.add_argument(
+        "--sweep", type=str, required=True, help="Path to sweep configuration file"
+    )
     args = parser.parse_args()
 
     run_parameter_sweep(args.sweep)

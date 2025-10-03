@@ -14,6 +14,8 @@ from callbacks import (
     TimescaleVisualizationCallback,
 )
 
+from pirnns.analysis.measurements import PositionDecodingMeasurement
+
 from datamodule import PathIntegrationDataModule
 
 from pirnns.rnns.rnn import RNN, RNNLightning
@@ -25,7 +27,9 @@ log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "logs"))
 print("Log directory:", log_dir)
 
 
-def create_vanilla_rnn_model(config: dict):
+def create_vanilla_rnn_model(
+    config: dict,
+):
     """Create vanilla PathIntRNN model and lightning module."""
     model = RNN(
         input_size=config["input_size"],
@@ -46,7 +50,9 @@ def create_vanilla_rnn_model(config: dict):
     return model, lightning_module
 
 
-def create_multitimescale_rnn_model(config: dict):
+def create_multitimescale_rnn_model(
+    config: dict,
+):
     """Create MultiTimescaleRNN model and lightning module."""
     model = MultiTimescaleRNN(
         input_size=config["input_size"],
@@ -72,7 +78,7 @@ def single_seed(config: dict) -> dict:
     """
     Main training function for a single seed.
     Used by both single runs and parameter sweeps.
-    
+
     Returns:
         dict: Training results including final validation loss
     """
@@ -83,15 +89,19 @@ def single_seed(config: dict) -> dict:
     model_type = config.get("model_type", "vanilla").lower()
     seed = config["seed"]
     run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     print(f"Starting training run: {run_id}")
     print(f"Model type: {model_type}, Seed: {seed}")
 
     # Determine save directory structure
     if "sweep_dir" in config and "experiment_name" in config:
         # Parameter sweep mode: save in sweep_dir/experiment_name/seed_{seed}/
-        run_dir = os.path.join(config["sweep_dir"], config["experiment_name"], f"seed_{seed}")
-        wandb_name = f"{config['project_name']}_{config['experiment_name']}_seed{seed}_{run_id}"
+        run_dir = os.path.join(
+            config["sweep_dir"], config["experiment_name"], f"seed_{seed}"
+        )
+        wandb_name = (
+            f"{config['project_name']}_{config['experiment_name']}_seed{seed}_{run_id}"
+        )
         wandb_group = os.path.basename(config["sweep_dir"])  # Group by sweep name
     else:
         # Single run mode: save in log_dir/single_runs/{model_type}_{run_id}/
@@ -167,11 +177,11 @@ def single_seed(config: dict) -> dict:
     def save_untrained_model():
         untrained_ckpt_path = os.path.join(checkpoints_dir, "untrained.ckpt")
         checkpoint = {
-            'state_dict': lightning_module.state_dict(),
-            'lr_schedulers': [],
-            'epoch': 0,
-            'global_step': 0,
-            'hyper_parameters': dict(config)
+            "state_dict": lightning_module.state_dict(),
+            "lr_schedulers": [],
+            "epoch": 0,
+            "global_step": 0,
+            "hyper_parameters": dict(config),
         }
         torch.save(checkpoint, untrained_ckpt_path)
         print(f"Untrained model saved to: {untrained_ckpt_path}")
@@ -190,9 +200,10 @@ def single_seed(config: dict) -> dict:
     loss_logger = LossLoggerCallback(save_dir=run_dir)
 
     position_decoding_callback = PositionDecodingCallback(
-        place_cell_centers=datamodule.place_cell_centers,
-        decode_k=config["decode_k"],
+        measurement=PositionDecodingMeasurement(config),
+        datamodule=datamodule,
         log_every_n_epochs=config["log_every_n_epochs"],
+        save_dir=run_dir,
     )
 
     trajectory_viz_callback = TrajectoryVisualizationCallback(
@@ -245,7 +256,10 @@ def single_seed(config: dict) -> dict:
 
     # Get final validation loss
     final_val_loss = None
-    if hasattr(lightning_module, "trainer") and lightning_module.trainer.callback_metrics:
+    if (
+        hasattr(lightning_module, "trainer")
+        and lightning_module.trainer.callback_metrics
+    ):
         final_val_loss = lightning_module.trainer.callback_metrics.get("val_loss", None)
         if final_val_loss is not None:
             final_val_loss = float(final_val_loss)
@@ -260,16 +274,22 @@ def single_seed(config: dict) -> dict:
         with open(config_path, "w") as f:
             yaml.dump(config, f)
 
+        # Save place_cell_centers as a separate artifact
+        place_cells_path = os.path.join(run_dir, f"place_cell_centers_seed{seed}.pt")
+        torch.save(datamodule.place_cell_centers, place_cells_path)
+
         print(f"All artifacts saved to: {run_dir}")
 
     save_additional_artifacts()
-    
+
     return {"final_val_loss": final_val_loss}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run single RNN training")
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    parser.add_argument(
+        "--config", type=str, default="config.yaml", help="Path to config file"
+    )
     args = parser.parse_args()
 
     config_path = os.path.join(os.path.dirname(__file__), "configs", args.config)
