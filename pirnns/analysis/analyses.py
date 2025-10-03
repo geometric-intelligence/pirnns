@@ -3,11 +3,13 @@ Analysis classes for evaluating models under varying test conditions.
 
 Analyses define how to vary test conditions: they take a model, config, and measurement,
 then apply the measurement across different conditions (e.g., varying trajectory lengths).
+
+Note: In a sweep, each seed has its own config and place_cell_centers, so Analysis
+instances should be created fresh for each seed.
 """
 
 import torch
 from abc import ABC, abstractmethod
-from typing import Dict, List
 from dataclasses import dataclass
 import lightning as L
 
@@ -19,10 +21,10 @@ from .measurements import Measurement
 class AnalysisResult:
     """Container for single model analysis results."""
 
-    test_conditions: List  # e.g., [25, 50, 100] for trajectory lengths
-    measurements: List[float]  # Measurement value for each condition
+    test_conditions: list  # e.g., [25, 50, 100] for trajectory lengths
+    measurements: list[float]  # Measurement value for each condition
     condition_name: str  # e.g., "trajectory_length"
-    metadata: Dict | None = None  # Optional metadata about the analysis
+    metadata: dict | None = None  # Optional metadata about the analysis
 
 
 class Analysis(ABC):
@@ -30,16 +32,21 @@ class Analysis(ABC):
     Abstract base class for all analyses.
 
     An analysis varies test conditions and applies a measurement to each.
+    
+    Note: Analysis instances are tied to a specific config and place_cell_centers,
+    so in a sweep context, create fresh instances for each seed.
     """
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict, place_cell_centers: torch.Tensor):
         """
         Initialize the analysis.
 
         Args:
-            config: Configuration dictionary containing analysis parameters
+            config: Model configuration dictionary (from training)
+            place_cell_centers: Place cell centers tensor [num_place_cells, 2]
         """
         self.config = config
+        self.place_cell_centers = place_cell_centers
 
     @abstractmethod
     def run(
@@ -70,23 +77,22 @@ class OODAnalysis(Analysis):
 
     def __init__(
         self,
-        config: Dict,
-        test_lengths: List[int],
+        config: dict,
         place_cell_centers: torch.Tensor,
+        test_lengths: list[int],
         num_test_trajectories: int = 100,
     ):
         """
         Initialize OOD analysis.
 
         Args:
-            config: Base configuration (training config)
-            test_lengths: List of trajectory lengths to test (in time steps)
+            config: Base configuration (from training)
             place_cell_centers: Place cell centers from training [num_place_cells, 2]
+            test_lengths: List of trajectory lengths to test (in time steps)
             num_test_trajectories: Number of test trajectories per length
         """
-        super().__init__(config)
+        super().__init__(config, place_cell_centers)
         self.test_lengths = test_lengths
-        self.place_cell_centers = place_cell_centers
         self.num_test_trajectories = num_test_trajectories
         self.training_length = config["num_time_steps"]
 
@@ -180,17 +186,19 @@ class NoiseRobustnessAnalysis(Analysis):
 
     def __init__(
         self,
-        config: Dict,
-        noise_levels: List[float],
+        config: dict,
+        place_cell_centers: torch.Tensor,
+        noise_levels: list[float],
     ):
         """
         Initialize noise robustness analysis.
 
         Args:
             config: Base configuration
+            place_cell_centers: Place cell centers from training
             noise_levels: List of noise standard deviations to test
         """
-        super().__init__(config)
+        super().__init__(config, place_cell_centers)
         self.noise_levels = noise_levels
 
     def run(
@@ -212,17 +220,19 @@ class ArenaScalingAnalysis(Analysis):
 
     def __init__(
         self,
-        config: Dict,
-        arena_sizes: List[float],
+        config: dict,
+        place_cell_centers: torch.Tensor,
+        arena_sizes: list[float],
     ):
         """
         Initialize arena scaling analysis.
 
         Args:
             config: Base configuration
+            place_cell_centers: Place cell centers from training
             arena_sizes: List of arena sizes to test
         """
-        super().__init__(config)
+        super().__init__(config, place_cell_centers)
         self.arena_sizes = arena_sizes
 
     def run(

@@ -1,7 +1,7 @@
 """
 Measurement classes for computing various model performance metrics.
 
-Measurements define what to compute: they take a model, datamodule, and config,
+Measurements define what to compute: they take a model and datamodule,
 and return a single value.
 """
 
@@ -18,20 +18,18 @@ class Measurement(ABC):
     Abstract base class for all measurements.
 
     A measurement computes a single value from a given model and dataset.
+    Measurement instances should only store measurement-specific parameters,
+    not model-specific config (which varies per seed in a sweep).
     """
 
-    def __init__(
-        self,
-        config: dict,
-        **kwargs,
-    ) -> None:
+    def __init__(self, **kwargs) -> None:
         """
         Initialize the measurement.
 
         Args:
-            config: Configuration dictionary containing measurement parameters
+            **kwargs: Measurement-specific parameters
         """
-        self.config = config
+        pass
 
     @abstractmethod
     def compute(
@@ -62,18 +60,16 @@ class PositionDecodingMeasurement(Measurement):
 
     def __init__(
         self,
-        config: dict,
+        decode_k: int = 256,
     ) -> None:
         """
         Initialize the position decoding measurement.
 
         Args:
-            place_cell_centers: Tensor of shape [num_place_cells, 2] containing
-                              the 2D positions of place cell centers
             decode_k: Number of top place cells to use for position decoding
         """
-        super().__init__(config)
-        self.decode_k = config["decode_k"]
+        super().__init__()
+        self.decode_k = decode_k
 
     def decode_position_from_place_cells(
         self,
