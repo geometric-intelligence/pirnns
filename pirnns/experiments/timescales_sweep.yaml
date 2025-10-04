@@ -53,11 +53,11 @@ experiments:
   #       min_timescale: 0.0434
   #       max_timescale: 0.9
 
-  - name: "continuous_powerlaw_15"
-    overrides:
-      timescales_config:
-        type: "continuous"
-        distribution: "powerlaw"
-        exponent: 1.5
-        min_timescale: 0.0434
-        max_timescale: 0.9
+  # - name: "continuous_powerlaw_15"
+  #   overrides:
+  #     timescales_config:
+  #       type: "continuous"
+  #       distribution: "powerlaw"
+  #       exponent: 1.5
+  #       min_timescale: 0.0434
+  #       max_timescale: 0.9

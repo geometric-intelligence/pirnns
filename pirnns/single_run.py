@@ -200,7 +200,7 @@ def single_seed(config: dict) -> dict:
     loss_logger = LossLoggerCallback(save_dir=run_dir)
 
     position_decoding_callback = PositionDecodingCallback(
-        measurement=PositionDecodingMeasurement(config),
+        measurement=PositionDecodingMeasurement(config["decode_k"]),
         datamodule=datamodule,
         log_every_n_epochs=config["log_every_n_epochs"],
         save_dir=run_dir,

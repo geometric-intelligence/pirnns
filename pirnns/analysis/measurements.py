@@ -61,7 +61,7 @@ class PositionDecodingMeasurement(Measurement):
 
     def __init__(
         self,
-        decode_k: int = 256,
+        decode_k: int = 3,
     ) -> None:
         """
         Initialize the position decoding measurement.

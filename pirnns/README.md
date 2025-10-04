@@ -22,7 +22,7 @@ python single_run.py --config configs/mts.yaml
 For comparing multiple configurations systematically:
 
 ```bash
-python run_sweep.py --sweep experiments/timescales_sweep.yaml
+python run_sweep.py --sweep experiments/<sweep_name>.yaml
 ```
 
 **Use when:**
@@ -35,7 +35,7 @@ python run_sweep.py --sweep experiments/timescales_sweep.yaml
 
 #### Creating Parameter Sweep Experiments
 
-Create an experiment file (e.g., `experiments/timescales_sweep.yaml`):
+Create an experiment file (e.g., `experiments/<sweep_name>.yaml`):
 
 ```yaml
 # Base configuration to inherit from
